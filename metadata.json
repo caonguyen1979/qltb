@@ -1,0 +1,7 @@
+{
+  "name": "EduEquip Manager",
+  "description": "A comprehensive facility and equipment management system for high schools, featuring QR code tracking, role-based access control, and Google Sheets data synchronization simulation.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
