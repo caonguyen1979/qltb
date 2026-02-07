@@ -5,7 +5,7 @@ import { db } from '../services/mockDatabase';
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
-  login: (u: string, p: string, remember: boolean) => boolean;
+  login: (u: string, p: string, remember: boolean) => Promise<boolean>;
   logout: () => void;
 }
 
@@ -32,9 +32,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const login = (usernameInput: string, passwordInput: string, remember: boolean) => {
+  const login = async (usernameInput: string, passwordInput: string, remember: boolean) => {
     // Mock Auth: Password is 'admin' for admin, or same as username for others
-    const validUser = db.findUser(usernameInput);
+    const validUser = await db.findUser(usernameInput);
 
     if (validUser) {
       // Very basic mock password check

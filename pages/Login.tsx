@@ -22,14 +22,14 @@ export const Login: React.FC = () => {
     setLoading(true);
 
     try {
-      // Simulation delay
-      await new Promise(resolve => setTimeout(resolve, 800));
-      const success = login(username, password, remember);
+      const success = await login(username, password, remember);
       if (success) {
         navigate(from, { replace: true });
       } else {
         setError('Invalid username or password. Try "admin" / "admin"');
       }
+    } catch (e) {
+      setError('An error occurred during login');
     } finally {
       setLoading(false);
     }

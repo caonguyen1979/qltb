@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { 
   BarChart, 
   Bar, 
@@ -12,12 +12,22 @@ import {
   Pie, 
   Cell 
 } from 'recharts';
-import { AlertCircle, CheckCircle, Clock, Wrench } from 'lucide-react';
+import { AlertCircle, CheckCircle, Clock, Wrench, Loader2 } from 'lucide-react';
 import { db } from '../services/mockDatabase';
-import { DeviceStatus } from '../types';
+import { DeviceStatus, Device } from '../types';
 
 export const Dashboard: React.FC = () => {
-  const devices = db.getDevices();
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const data = await db.getDevices();
+      setDevices(data);
+      setLoading(false);
+    };
+    fetchData();
+  }, []);
 
   const stats = useMemo(() => {
     return {
@@ -46,6 +56,10 @@ export const Dashboard: React.FC = () => {
       count: counts[key]
     }));
   }, [devices]);
+
+  if (loading) {
+    return <div className="flex h-full items-center justify-center"><Loader2 className="animate-spin w-8 h-8 text-blue-500"/></div>;
+  }
 
   return (
     <div className="space-y-6">

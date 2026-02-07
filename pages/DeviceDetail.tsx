@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import { ArrowLeft, Save, Trash2, Printer, AlertTriangle, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Save, Trash2, Printer, AlertTriangle, CheckCircle, Loader2 } from 'lucide-react';
 import { db } from '../services/mockDatabase';
 import { Device, DeviceStatus, Role, DeviceLog } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -16,41 +16,44 @@ export const DeviceDetail: React.FC = () => {
   
   const [device, setDevice] = useState<Device | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [showQR, setShowQR] = useState(false);
 
   // Determine if we start in edit mode based on URL or logic
   useEffect(() => {
-    const isNew = id === 'new';
-    const isEditMode = searchParams.get('edit') === 'true';
-    const isQRMode = searchParams.get('qr') === 'true';
+    const init = async () => {
+        const isNew = id === 'new';
+        const isEditMode = searchParams.get('edit') === 'true';
+        const isQRMode = searchParams.get('qr') === 'true';
 
-    if (isNew) {
-      setIsEditing(true);
-      setDevice({
-        id: uuidv4(),
-        name: '',
-        code: `EQ-${Math.floor(Math.random() * 10000)}`,
-        category: 'General',
-        status: DeviceStatus.AVAILABLE,
-        location: '',
-        purchaseDate: new Date().toISOString().split('T')[0],
-        history: [],
-        imageUrl: 'https://picsum.photos/200/200'
-      });
-      setLoading(false);
-    } else {
-      const found = db.getDeviceById(id || '');
-      if (found) {
-        setDevice(found);
-        setIsEditing(isEditMode);
-        setShowQR(isQRMode);
-      } else {
-        // Handle not found
-        navigate('/devices');
-      }
-      setLoading(false);
-    }
+        if (isNew) {
+            setIsEditing(true);
+            setDevice({
+                id: uuidv4(),
+                name: '',
+                code: `EQ-${Math.floor(Math.random() * 10000)}`,
+                category: 'General',
+                status: DeviceStatus.AVAILABLE,
+                location: '',
+                purchaseDate: new Date().toISOString().split('T')[0],
+                history: [],
+                imageUrl: 'https://picsum.photos/200/200'
+            });
+            setLoading(false);
+        } else {
+            const found = await db.getDeviceById(id || '');
+            if (found) {
+                setDevice(found);
+                setIsEditing(isEditMode);
+                setShowQR(isQRMode);
+            } else {
+                navigate('/devices');
+            }
+            setLoading(false);
+        }
+    };
+    init();
   }, [id, searchParams, navigate]);
 
   const { register, handleSubmit, formState: { errors }, setValue } = useForm<Device>();
@@ -68,57 +71,73 @@ export const DeviceDetail: React.FC = () => {
     }
   }, [device, setValue]);
 
-  const onSubmit = (data: Device) => {
+  const onSubmit = async (data: Device) => {
     if (!device || !user) return;
+    setSaving(true);
 
-    // Create history log
-    const changes: DeviceLog = {
-      id: uuidv4(),
-      date: new Date().toISOString(),
-      action: id === 'new' ? 'CREATED' : 'UPDATED',
-      performedBy: user.username,
-      notes: `Status: ${data.status}`
-    };
+    try {
+        // Create history log
+        const changes: DeviceLog = {
+            id: uuidv4(),
+            date: new Date().toISOString(),
+            action: id === 'new' ? 'CREATED' : 'UPDATED',
+            performedBy: user.username,
+            notes: `Status: ${data.status}`
+        };
 
-    const updatedDevice: Device = {
-      ...device,
-      ...data,
-      history: [changes, ...device.history]
-    };
+        const updatedDevice: Device = {
+            ...device,
+            ...data,
+            history: [changes, ...device.history]
+        };
 
-    db.saveDevice(updatedDevice);
-    setDevice(updatedDevice);
-    setIsEditing(false);
-    alert('Device saved successfully!');
-    if (id === 'new') navigate(`/devices/${updatedDevice.id}`);
+        await db.saveDevice(updatedDevice);
+        setDevice(updatedDevice);
+        setIsEditing(false);
+        alert('Device saved successfully!');
+        if (id === 'new') navigate(`/devices/${updatedDevice.id}`);
+    } catch (e) {
+        alert('Failed to save device');
+    } finally {
+        setSaving(false);
+    }
   };
 
-  const handleStatusChange = (newStatus: DeviceStatus) => {
+  const handleStatusChange = async (newStatus: DeviceStatus) => {
     if (!device || !user) return;
+    setSaving(true);
     
-    // Simulating quick status update for non-admins (e.g. reporting broken)
-    const log: DeviceLog = {
-      id: uuidv4(),
-      date: new Date().toISOString(),
-      action: 'STATUS_CHANGE',
-      performedBy: user.username,
-      notes: `Changed from ${device.status} to ${newStatus}`
-    };
+    try {
+        const log: DeviceLog = {
+            id: uuidv4(),
+            date: new Date().toISOString(),
+            action: 'STATUS_CHANGE',
+            performedBy: user.username,
+            notes: `Changed from ${device.status} to ${newStatus}`
+        };
 
-    const updated = { 
-      ...device, 
-      status: newStatus,
-      history: [log, ...device.history]
-    };
-    
-    db.saveDevice(updated);
-    setDevice(updated);
+        const updated = { 
+            ...device, 
+            status: newStatus,
+            history: [log, ...device.history]
+        };
+        
+        await db.saveDevice(updated);
+        setDevice(updated);
+    } catch (e) {
+        alert("Failed to update status");
+    } finally {
+        setSaving(false);
+    }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (confirm('Are you sure you want to delete this device? This cannot be undone.')) {
-      if (device) db.deleteDevice(device.id);
-      navigate('/devices');
+      if (device) {
+          setSaving(true);
+          await db.deleteDevice(device.id);
+          navigate('/devices');
+      }
     }
   };
 
@@ -150,10 +169,9 @@ export const DeviceDetail: React.FC = () => {
 
   const canEdit = user?.role === Role.ADMIN || user?.role === Role.MANAGER;
   const canDelete = user?.role === Role.ADMIN;
-  // Users can only report broken or update specific fields if assigned (simplified logic here)
   const isUserAssigned = device?.assignedTo === user?.id;
 
-  if (loading) return <div>Loading...</div>;
+  if (loading) return <div className="flex justify-center p-10"><Loader2 className="animate-spin text-blue-600"/></div>;
   if (!device) return <div>Device not found.</div>;
 
   return (
@@ -211,7 +229,12 @@ export const DeviceDetail: React.FC = () => {
       )}
 
       {/* Main Content Form */}
-      <form onSubmit={handleSubmit(onSubmit)} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <form onSubmit={handleSubmit(onSubmit)} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden relative">
+        {saving && (
+            <div className="absolute inset-0 bg-white/50 z-10 flex items-center justify-center">
+                <Loader2 className="animate-spin text-blue-600 w-8 h-8" />
+            </div>
+        )}
         <div className="p-6 md:p-8 space-y-6">
           
           {/* Quick Status Actions for Standard Users/Managers */}
@@ -221,6 +244,7 @@ export const DeviceDetail: React.FC = () => {
               <button 
                 type="button"
                 onClick={() => handleStatusChange(DeviceStatus.BROKEN)}
+                disabled={saving}
                 className="flex items-center px-4 py-2 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 border border-red-200 transition-colors"
               >
                 <AlertTriangle className="w-4 h-4 mr-2" /> Report Broken
@@ -229,6 +253,7 @@ export const DeviceDetail: React.FC = () => {
                 <button 
                   type="button"
                   onClick={() => handleStatusChange(DeviceStatus.MAINTENANCE)}
+                  disabled={saving}
                   className="flex items-center px-4 py-2 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 border border-amber-200 transition-colors"
                 >
                    Send to Maintenance
@@ -238,6 +263,7 @@ export const DeviceDetail: React.FC = () => {
                 <button 
                   type="button"
                   onClick={() => handleStatusChange(DeviceStatus.AVAILABLE)}
+                  disabled={saving}
                   className="flex items-center px-4 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 border border-green-200 transition-colors"
                 >
                    <CheckCircle className="w-4 h-4 mr-2" /> Mark Fixed / Available
@@ -338,6 +364,7 @@ export const DeviceDetail: React.FC = () => {
               </button>
               <button 
                 type="submit"
+                disabled={saving}
                 className="flex items-center px-6 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm"
               >
                 <Save className="w-4 h-4 mr-2" /> Save Changes

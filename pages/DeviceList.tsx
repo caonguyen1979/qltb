@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Search, Filter, Edit, Eye, QrCode } from 'lucide-react';
+import { Plus, Search, Filter, Edit, Eye, QrCode, Loader2 } from 'lucide-react';
 import { db } from '../services/mockDatabase';
 import { Device, Role, DeviceStatus } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -9,12 +9,17 @@ export const DeviceList: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [devices, setDevices] = useState<Device[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
 
   useEffect(() => {
-    // In a real app, this would be an async API call
-    setDevices(db.getDevices());
+    const loadDevices = async () => {
+        const data = await db.getDevices();
+        setDevices(data);
+        setLoading(false);
+    };
+    loadDevices();
   }, []);
 
   const filteredDevices = devices.filter(device => {
@@ -24,12 +29,6 @@ export const DeviceList: React.FC = () => {
       device.location.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesStatus = filterStatus === 'ALL' || device.status === filterStatus;
-
-    // For regular users, they might only see assigned devices or all (depending on requirements).
-    // The prompt says "Manager/User sees...", specifically User manages assigned.
-    // However, for list view transparency, usually viewing list is fine, editing is restricted.
-    // We will show all but highlight assigned ones.
-    
     return matchesSearch && matchesStatus;
   });
 
@@ -42,6 +41,10 @@ export const DeviceList: React.FC = () => {
       default: return 'bg-gray-100 text-gray-700';
     }
   };
+
+  if (loading) {
+      return <div className="flex justify-center p-10"><Loader2 className="animate-spin text-blue-600" /></div>;
+  }
 
   return (
     <div className="space-y-6">
