@@ -19,6 +19,8 @@ export interface User {
   email: string;
   role: Role;
   department?: string;
+  passwordHash?: string; // Mật khẩu đã mã hóa
+  mustChangePassword?: boolean; // Cờ bắt buộc đổi mật khẩu
   lastLogin?: number; // Timestamp
 }
 

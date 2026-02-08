@@ -10,8 +10,27 @@ const LOCAL_STORAGE_KEYS = {
   CONFIG: 'eduequip_config'
 };
 
+// Hàm băm mật khẩu đơn giản sử dụng SHA-256 (Client-side)
+export const hashPassword = async (text: string): Promise<string> => {
+  const msgBuffer = new TextEncoder().encode(text);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
+// Admin mặc định: pass là 'admin' -> hash SHA256 của 'admin'
+const DEFAULT_ADMIN_HASH = "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918";
+
 const seedUsers: User[] = [
-  { id: '1', username: 'admin', fullName: 'Quản trị hệ thống', email: 'admin@school.edu', role: Role.ADMIN },
+  { 
+    id: '1', 
+    username: 'admin', 
+    fullName: 'Quản trị hệ thống', 
+    email: 'admin@school.edu', 
+    role: Role.ADMIN,
+    passwordHash: DEFAULT_ADMIN_HASH,
+    mustChangePassword: false 
+  },
 ];
 
 export const db = {
@@ -21,9 +40,15 @@ export const db = {
         const res = await fetch('/api/sheet?type=users');
         if (!res.ok) throw new Error('API Error');
         const data = await res.json();
-        // Fallback if empty sheet
-        if (Array.isArray(data) && data.length === 0) return seedUsers;
-        return data;
+        
+        // Parse boolean fields that might come as strings from Sheet
+        const parsedData = data.map((u: any) => ({
+            ...u,
+            mustChangePassword: String(u.mustChangePassword).toLowerCase() === 'true'
+        }));
+
+        if (Array.isArray(parsedData) && parsedData.length === 0) return seedUsers;
+        return parsedData;
     } catch (e) {
         console.warn("Falling back to LocalStorage (Users)", e);
         const local = localStorage.getItem(LOCAL_STORAGE_KEYS.USERS);
@@ -33,7 +58,11 @@ export const db = {
   
   findUser: async (username: string): Promise<User | undefined> => {
     const users = await db.getUsers();
-    return users.find(u => u.username === username || u.email === username);
+    // Case insensitive search for username/email
+    return users.find(u => 
+      u.username.toLowerCase() === username.toLowerCase() || 
+      u.email.toLowerCase() === username.toLowerCase()
+    );
   },
 
   saveUser: async (user: User): Promise<void> => {

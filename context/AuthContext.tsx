@@ -1,11 +1,18 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Role } from '../types';
-import { db } from '../services/mockDatabase';
+import { db, hashPassword } from '../services/mockDatabase';
+
+interface LoginResult {
+  success: boolean;
+  mustChangePassword?: boolean;
+  user?: User;
+}
 
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
-  login: (u: string, p: string, remember: boolean) => Promise<boolean>;
+  login: (u: string, p: string, remember: boolean) => Promise<LoginResult>;
+  updateUserPassword: (newPass: string) => Promise<boolean>;
   logout: () => void;
 }
 
@@ -32,26 +39,65 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const login = async (usernameInput: string, passwordInput: string, remember: boolean) => {
-    // Mock Auth: Password is 'admin' for admin, or same as username for others
+  const login = async (usernameInput: string, passwordInput: string, remember: boolean): Promise<LoginResult> => {
     const validUser = await db.findUser(usernameInput);
 
     if (validUser) {
-      // Very basic mock password check
-      const isValidPass = passwordInput === 'admin' || passwordInput === usernameInput;
+      const inputHash = await hashPassword(passwordInput);
+      
+      // Fallback for old users without passwordHash: check if password matches username (legacy logic) or 'admin'
+      let isValidPass = false;
+      if (validUser.passwordHash) {
+          isValidPass = validUser.passwordHash === inputHash;
+      } else {
+          // LEGACY SUPPORT: If no hash exists, accept 'admin' or username as pass
+          // THIS IS ONLY FOR MIGRATION
+          isValidPass = passwordInput === 'admin' || passwordInput === usernameInput;
+      }
       
       if (isValidPass) {
+        // Check if user must change password
+        if (validUser.mustChangePassword) {
+            return { success: true, mustChangePassword: true, user: validUser };
+        }
+
         setUser(validUser);
         
         // Persistence Logic
-        const expiryTime = new Date().getTime() + (remember ? 3 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000); // 3 days or 1 day
+        const expiryTime = new Date().getTime() + (remember ? 3 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000); 
         localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(validUser));
         localStorage.setItem(AUTH_EXPIRY_KEY, expiryTime.toString());
         
-        return true;
+        return { success: true, mustChangePassword: false, user: validUser };
       }
     }
-    return false;
+    return { success: false };
+  };
+
+  const updateUserPassword = async (newPass: string): Promise<boolean> => {
+      // Typically used when 'mustChangePassword' is true, user is not fully logged in to Context yet
+      // but we might have a temp user object in Login component. 
+      // Or if logged in user changes pass.
+      // NOTE: This implementation assumes we update the currently logged-in user OR we handle it via DB directly.
+      // To keep it simple, this updates the `user` state if present, and DB.
+      
+      // Since 'mustChangePassword' flow happens BEFORE full auth context set (in Login page), 
+      // we need to pass the user ID or rely on the caller to update DB.
+      // Actually, let's keep it simple: Login page handles the specific flow.
+      // This function is for Authenticated users.
+      
+      if (!user) return false;
+      const newHash = await hashPassword(newPass);
+      const updatedUser = { ...user, passwordHash: newHash, mustChangePassword: false };
+      
+      try {
+          await db.saveUser(updatedUser);
+          setUser(updatedUser);
+          localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updatedUser));
+          return true;
+      } catch (e) {
+          return false;
+      }
   };
 
   const logout = () => {
@@ -61,7 +107,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: !!user, login, logout }}>
+    <AuthContext.Provider value={{ user, isAuthenticated: !!user, login, updateUserPassword, logout }}>
       {children}
     </AuthContext.Provider>
   );

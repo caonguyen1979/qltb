@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Edit, Trash2, Loader2, Save, X } from 'lucide-react';
-import { db } from '../services/mockDatabase';
+import { Plus, Search, Edit, Trash2, Loader2, Save, X, KeyRound, RefreshCw } from 'lucide-react';
+import { db, hashPassword } from '../services/mockDatabase';
 import { User, Role } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { v4 as uuidv4 } from 'uuid';
@@ -15,6 +15,7 @@ export const UsersPage: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [formData, setFormData] = useState<Partial<User>>({});
+  const [password, setPassword] = useState(''); // New password field
   const [saving, setSaving] = useState(false);
 
   const fetchUsers = async () => {
@@ -34,6 +35,7 @@ export const UsersPage: React.FC = () => {
   }, []);
 
   const handleOpenModal = (userToEdit?: User) => {
+    setPassword(''); // Reset password field
     if (userToEdit) {
       setEditingUser(userToEdit);
       setFormData(userToEdit);
@@ -54,6 +56,27 @@ export const UsersPage: React.FC = () => {
     e.preventDefault();
     setSaving(true);
     try {
+      let finalPasswordHash = editingUser?.passwordHash;
+      let shouldForceChange = editingUser?.mustChangePassword;
+
+      // Logic: 
+      // 1. If create new user -> Password required, mustChange = true
+      // 2. If edit user AND password filled -> Update hash, set mustChange = true (Reset)
+      // 3. If edit user AND password empty -> Keep old hash
+      
+      if (!editingUser) {
+          if (!password) {
+              alert("Vui lòng nhập mật khẩu cho người dùng mới.");
+              setSaving(false);
+              return;
+          }
+          finalPasswordHash = await hashPassword(password);
+          shouldForceChange = true;
+      } else if (password) {
+          finalPasswordHash = await hashPassword(password);
+          shouldForceChange = true; // Force change on next login if admin resets pass
+      }
+
       const newUser: User = {
         id: editingUser ? editingUser.id : uuidv4(),
         fullName: formData.fullName || '',
@@ -61,7 +84,8 @@ export const UsersPage: React.FC = () => {
         email: formData.email || '',
         role: formData.role || Role.USER,
         department: formData.department || '',
-        // In a real app, password handling would be here
+        passwordHash: finalPasswordHash,
+        mustChangePassword: shouldForceChange
       };
 
       await db.saveUser(newUser);
@@ -130,7 +154,7 @@ export const UsersPage: React.FC = () => {
                 <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Tài khoản</th>
                 <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
                 <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Vai trò</th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Bộ phận</th>
+                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Trạng thái</th>
                 <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Hành động</th>
               </tr>
             </thead>
@@ -154,10 +178,16 @@ export const UsersPage: React.FC = () => {
                       {u.role === Role.ADMIN ? 'Quản trị viên' : u.role === Role.MANAGER ? 'Quản lý' : 'Giáo viên'}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{u.department || '-'}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500">
+                    {u.mustChangePassword ? (
+                        <span className="text-amber-600 text-xs font-bold flex items-center">
+                            <KeyRound className="w-3 h-3 mr-1" /> Chờ đổi mật khẩu
+                        </span>
+                    ) : <span className="text-green-600 text-xs">Đã kích hoạt</span>}
+                  </td>
                   <td className="px-6 py-4 text-sm text-right">
                     <div className="flex items-center justify-end space-x-3">
-                      <button onClick={() => handleOpenModal(u)} className="text-gray-400 hover:text-blue-600" title="Sửa">
+                      <button onClick={() => handleOpenModal(u)} className="text-gray-400 hover:text-blue-600" title="Sửa / Reset Mật khẩu">
                         <Edit className="w-4 h-4" />
                       </button>
                       {currentUser?.id !== u.id && (
@@ -198,7 +228,8 @@ export const UsersPage: React.FC = () => {
                         <label className="block text-sm font-medium text-gray-700 mb-1">Tên đăng nhập</label>
                         <input 
                             required
-                            className="w-full px-4 py-2 border border-gray-200 rounded-lg"
+                            disabled={!!editingUser} // Cannot change username after creation
+                            className="w-full px-4 py-2 border border-gray-200 rounded-lg disabled:bg-gray-100"
                             value={formData.username || ''}
                             onChange={e => setFormData({...formData, username: e.target.value})}
                         />
@@ -213,6 +244,27 @@ export const UsersPage: React.FC = () => {
                             onChange={e => setFormData({...formData, email: e.target.value})}
                         />
                     </div>
+                    
+                    <div className="bg-amber-50 p-4 rounded-lg border border-amber-100">
+                        <label className="block text-sm font-bold text-amber-900 mb-1 flex items-center">
+                            <KeyRound className="w-4 h-4 mr-2" /> 
+                            {editingUser ? "Đặt lại mật khẩu (Tùy chọn)" : "Mật khẩu khởi tạo (Bắt buộc)"}
+                        </label>
+                        <input 
+                            type="text" // Show text to avoid mistakes during reset
+                            className="w-full px-4 py-2 border border-amber-200 rounded-lg focus:ring-amber-500 bg-white"
+                            placeholder={editingUser ? "Để trống nếu không muốn đổi" : "Nhập mật khẩu..."}
+                            value={password}
+                            onChange={e => setPassword(e.target.value)}
+                        />
+                        {editingUser && password && (
+                            <p className="text-xs text-amber-700 mt-2 flex items-center">
+                                <RefreshCw className="w-3 h-3 mr-1" />
+                                Người dùng sẽ buộc phải đổi mật khẩu này trong lần đăng nhập tới.
+                            </p>
+                        )}
+                    </div>
+
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Vai trò</label>
