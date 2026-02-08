@@ -12,21 +12,43 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 2. Clean Key Formatting
-    // Problem: Sometimes users copy quotes "..." or the key has literal \n characters.
-    let cleanKey = process.env.GOOGLE_PRIVATE_KEY;
+    let rawKey = process.env.GOOGLE_PRIVATE_KEY;
+    let cleanKey = rawKey;
+
+    // --- ROBUST KEY CLEANING START ---
     
-    // Remove wrapping double quotes if they exist (common copy-paste error)
-    if (cleanKey.startsWith('"') && cleanKey.endsWith('"')) {
+    // Case 1: User pasted the entire credentials.json file content
+    if (rawKey.trim().startsWith('{')) {
+      try {
+        const keyJson = JSON.parse(rawKey);
+        if (keyJson.private_key) {
+          cleanKey = keyJson.private_key;
+          console.log('Log: Auto-extracted private_key from JSON object.');
+        }
+      } catch (e) {
+        // Not valid JSON, continue treating as string
+      }
+    }
+
+    // Case 2: Remove wrapping quotes (single or double) if present
+    cleanKey = cleanKey.trim();
+    if ((cleanKey.startsWith('"') && cleanKey.endsWith('"')) || 
+        (cleanKey.startsWith("'") && cleanKey.endsWith("'"))) {
       cleanKey = cleanKey.slice(1, -1);
     }
-    
-    // Replace literal escaped newlines with actual newlines
+
+    // Case 3: Fix escaped newlines (turn literal \n into actual newline character)
     cleanKey = cleanKey.replace(/\\n/g, '\n');
+
+    // Validation
+    if (!cleanKey.includes('-----BEGIN PRIVATE KEY-----') || !cleanKey.includes('-----END PRIVATE KEY-----')) {
+       throw new Error('Invalid Key Format. Key must start with "-----BEGIN PRIVATE KEY-----"');
+    }
+    // --- ROBUST KEY CLEANING END ---
 
     console.log(`Attempting Auth with Email: ${process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL}`);
 
-    // 3. Initialize Auth
+    // 2. Initialize Auth
     const serviceAccountAuth = new JWT({
       email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
       key: cleanKey,
@@ -35,7 +57,7 @@ export default async function handler(req, res) {
 
     const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, serviceAccountAuth);
 
-    // 4. Load Info (This verifies connection)
+    // 3. Load Info (This verifies connection)
     await doc.loadInfo();
     console.log(`Connected to Sheet: ${doc.title}`);
     
@@ -45,7 +67,6 @@ export default async function handler(req, res) {
 
     if (!sheet) {
       const sheetNames = doc.sheetsByIndex.map(s => s.title);
-      console.error(`Sheet '${type}' not found. Available: ${sheetNames.join(', ')}`);
       return res.status(404).json({ 
         error: `Sheet tab '${type}' not found`, 
         availableSheets: sheetNames,
@@ -123,7 +144,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ 
         error: 'Google API Connection Failed', 
         message: error.message,
-        stack: error.stack // Warning: exposed only for debugging, remove in production later
+        hint: error.message.includes('unsupported') ? 'Check GOOGLE_PRIVATE_KEY format in Vercel' : undefined
     });
   }
 }
