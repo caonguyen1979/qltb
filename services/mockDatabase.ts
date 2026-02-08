@@ -2,8 +2,6 @@ import { Device, DeviceStatus, Role, User } from '../types';
 
 /**
  * Hybrid Database Service
- * 1. Tries to use Vercel Serverless API (connected to Google Sheets).
- * 2. Fallbacks to LocalStorage if API fails or returns 404 (Local Development).
  */
 
 const LOCAL_STORAGE_KEYS = {
@@ -15,20 +13,21 @@ const seedUsers: User[] = [
   { id: '1', username: 'admin', fullName: 'System Administrator', email: 'admin@school.edu', role: Role.ADMIN },
 ];
 
-// Helper to check if we are likely in an environment where API works
-const isLocal = () => window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-
 export const db = {
   // --- USERS ---
   getUsers: async (): Promise<User[]> => {
     try {
         const res = await fetch('/api/sheet?type=users');
-        if (!res.ok) throw new Error('API Unavailable');
+        if (!res.ok) {
+            const errorData = await res.json();
+            console.error("API Error (Users):", errorData);
+            throw new Error(errorData.message || 'API Unavailable');
+        }
         const data = await res.json();
         if (Array.isArray(data) && data.length === 0) return seedUsers;
         return data;
     } catch (e) {
-        console.warn("Using LocalStorage for Users (API unavailable)");
+        console.warn("Falling back to LocalStorage (Users)", e);
         const local = localStorage.getItem(LOCAL_STORAGE_KEYS.USERS);
         return local ? JSON.parse(local) : seedUsers;
     }
@@ -48,7 +47,6 @@ export const db = {
       });
       if (!res.ok) throw new Error('API Error');
     } catch (e) {
-      // Local Fallback
       const users = await db.getUsers();
       users.push(user);
       localStorage.setItem(LOCAL_STORAGE_KEYS.USERS, JSON.stringify(users));
@@ -59,7 +57,12 @@ export const db = {
   getDevices: async (): Promise<Device[]> => {
     try {
         const res = await fetch('/api/sheet?type=data');
-        if (!res.ok) throw new Error('API Unavailable');
+        if (!res.ok) {
+            // Log the detailed error from the server to the browser console
+            const errText = await res.text();
+            console.error("API FAILED DETAILS:", errText);
+            throw new Error('API Unavailable');
+        }
         return await res.json();
     } catch (e) {
         console.warn("Using LocalStorage for Devices (API unavailable)");
@@ -74,10 +77,7 @@ export const db = {
   },
 
   saveDevice: async (device: Device): Promise<void> => {
-    // Try API first
     try {
-        // Check existence via API would be expensive, so we optimistically try PUT or POST logic if we had endpoints
-        // For this hybrid, we try to read first to know mode
         const resList = await fetch('/api/sheet?type=data');
         if (!resList.ok) throw new Error("API Unavailable");
         
@@ -85,14 +85,19 @@ export const db = {
         const exists = devices.some(d => d.id === device.id);
 
         const method = exists ? 'PUT' : 'POST';
-        await fetch('/api/sheet?type=data', {
+        const res = await fetch('/api/sheet?type=data', {
             method,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(device)
         });
+        if (!res.ok) {
+             const err = await res.json();
+             alert(`Save failed: ${err.message}`);
+             throw new Error(err.message);
+        }
     } catch (e) {
         // Local Fallback
-        const devices = await db.getDevices(); // Gets from LocalStorage due to fallback in getDevices
+        const devices = await db.getDevices();
         const index = devices.findIndex(d => d.id === device.id);
         
         if (index >= 0) {
@@ -110,14 +115,12 @@ export const db = {
         const res = await fetch(`/api/sheet?type=data&id=${id}`, { method: 'DELETE' });
         if (!res.ok) throw new Error('API Unavailable');
     } catch (e) {
-        // Local Fallback
         const devices = await db.getDevices();
         const filtered = devices.filter(d => d.id !== id);
         localStorage.setItem(LOCAL_STORAGE_KEYS.DEVICES, JSON.stringify(filtered));
     }
   },
 
-  // --- CONFIG ---
   getConfig: () => {
     return { schoolName: 'Future High School', academicYear: '2023-2024' };
   }
