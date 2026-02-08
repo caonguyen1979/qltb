@@ -182,7 +182,7 @@ export const db = {
   getConfig: async (): Promise<SystemConfig> => {
     try {
         // Try fetching from 'config' sheet which acts as a Key-Value store
-        // Columns: key, value
+        // Columns: key, value, id
         const res = await fetch('/api/sheet?type=config');
         if (!res.ok) throw new Error("Config Sheet API Unavailable");
         
@@ -196,13 +196,12 @@ export const db = {
                     // Try parsing JSON for arrays/objects (categories, customFields)
                     configMap[r.key] = JSON.parse(r.value);
                 } catch {
-                    // Fallback to plain string
+                    // Fallback to plain string if not valid JSON
                     configMap[r.key] = r.value;
                 }
             }
         });
         
-        // Merge with defaults to ensure all fields exist
         return { ...DEFAULT_CONFIG, ...configMap };
 
     } catch (e) {
@@ -214,33 +213,34 @@ export const db = {
 
   saveConfig: async (config: SystemConfig): Promise<void> => {
     try {
-        // We need to save each key as a row in the 'config' sheet
-        // Since the generic API is row-based, we'll try to update existing keys or create new ones.
-        // NOTE: This implementation is simplified. In a real app, we'd batch this.
-        
-        // 1. Get current config rows to know IDs
+        // 1. Get current config rows to check for existing keys and get their IDs
         const res = await fetch('/api/sheet?type=config');
-        let currentRows = [];
+        let currentRows: any[] = [];
         if (res.ok) currentRows = await res.json();
 
         const keysToSave = ['schoolName', 'academicYear', 'categories', 'customFields'];
 
         for (const key of keysToSave) {
             const val = (config as any)[key];
-            const stringVal = typeof val === 'object' ? JSON.stringify(val) : val;
+            // Ensure complex types are stringified
+            const stringVal = typeof val === 'object' ? JSON.stringify(val) : String(val);
             
+            // Find existing row by Key
             const existingRow = currentRows.find((r: any) => r.key === key);
             
-            if (existingRow) {
+            if (existingRow && existingRow.id) {
+                // UPDATE (PUT) using the existing ID
                 await fetch('/api/sheet?type=config', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ id: existingRow.id, key, value: stringVal })
                 });
             } else {
+                // CREATE (POST)
                 await fetch('/api/sheet?type=config', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    // Generate a new ID if creating
                     body: JSON.stringify({ id: crypto.randomUUID(), key, value: stringVal })
                 });
             }

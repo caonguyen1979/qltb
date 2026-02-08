@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import { ArrowLeft, Save, Trash2, Printer, AlertTriangle, CheckCircle, Loader2, UserMinus, UserPlus, Camera, Upload, LogIn } from 'lucide-react';
+import { ArrowLeft, Save, Trash2, Printer, AlertTriangle, CheckCircle, Loader2, UserMinus, UserPlus, Camera, Upload, LogIn, ImagePlus } from 'lucide-react';
 import { db } from '../services/mockDatabase';
 import { Device, DeviceStatus, Role, DeviceLog, SystemConfig } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -24,7 +24,10 @@ export const DeviceDetail: React.FC = () => {
 
   // Image Upload State
   const [reportImage, setReportImage] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [deviceMainImage, setDeviceMainImage] = useState<string | null>(null);
+  
+  const reportFileInputRef = useRef<HTMLInputElement>(null);
+  const mainImageInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const init = async () => {
@@ -50,18 +53,17 @@ export const DeviceDetail: React.FC = () => {
                 location: '',
                 purchaseDate: new Date().toISOString().split('T')[0],
                 history: [],
-                imageUrl: 'https://picsum.photos/200/200',
+                imageUrl: '',
                 customFields: {}
             });
             setLoading(false);
         } else {
             if (foundDevice) {
                 setDevice(foundDevice);
+                setDeviceMainImage(foundDevice.imageUrl || null);
                 setIsEditing(isEditMode);
                 setShowQR(isQRMode);
             } else {
-                // If public user scans bad code, keep them here but show error? 
-                // Or redirect? Let's redirect to login for now if not found.
                 if (isAuthenticated) navigate('/devices');
             }
             setLoading(false);
@@ -90,32 +92,36 @@ export const DeviceDetail: React.FC = () => {
     }
   }, [device, setValue, config]);
 
-  // --- IMAGE HANDLING ---
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-              // Simple client-side resize to avoid massive strings in Sheet
-              const img = new Image();
-              img.src = reader.result as string;
-              img.onload = () => {
-                  const canvas = document.createElement('canvas');
-                  const MAX_WIDTH = 800;
-                  const scale = MAX_WIDTH / img.width;
-                  canvas.width = MAX_WIDTH;
-                  canvas.height = img.height * scale;
-                  
-                  const ctx = canvas.getContext('2d');
-                  ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-                  
-                  // Compression 0.7
-                  const compressed = canvas.toDataURL('image/jpeg', 0.7);
-                  setReportImage(compressed);
-              };
+  // --- IMAGE HANDLING HELPER ---
+  const processImage = (file: File, callback: (base64: string) => void) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+          const img = new Image();
+          img.src = reader.result as string;
+          img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const MAX_WIDTH = 800;
+              const scale = MAX_WIDTH / img.width;
+              canvas.width = MAX_WIDTH;
+              canvas.height = img.height * scale;
+              const ctx = canvas.getContext('2d');
+              ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+              // Compression 0.7
+              const compressed = canvas.toDataURL('image/jpeg', 0.7);
+              callback(compressed);
           };
-          reader.readAsDataURL(file);
-      }
+      };
+      reader.readAsDataURL(file);
+  };
+
+  const handleReportImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) processImage(file, setReportImage);
+  };
+
+  const handleMainImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) processImage(file, setDeviceMainImage);
   };
 
   const onSubmit = async (data: Device) => {
@@ -134,6 +140,7 @@ export const DeviceDetail: React.FC = () => {
         const updatedDevice: Device = {
             ...device,
             ...data,
+            imageUrl: deviceMainImage || device.imageUrl, // Save main image
             history: [changes, ...device.history]
         };
 
@@ -160,7 +167,7 @@ export const DeviceDetail: React.FC = () => {
             action: actionNote.toUpperCase(),
             performedBy: user.fullName,
             notes: `Chuyển trạng thái sang ${newStatus}`,
-            reportImageUrl: reportImage || undefined // Add image to log
+            reportImageUrl: reportImage || undefined // Add report image
         };
 
         const updated = { 
@@ -171,7 +178,7 @@ export const DeviceDetail: React.FC = () => {
         
         await db.saveDevice(updated);
         setDevice(updated);
-        setReportImage(null); // Reset image
+        setReportImage(null); 
     } catch (e) {
         alert("Lỗi khi cập nhật trạng thái");
     } finally {
@@ -182,7 +189,7 @@ export const DeviceDetail: React.FC = () => {
   // --- ACTIONS WITH AUTH CHECK ---
   const requireAuthAndAction = (callback: () => void) => {
       if (!isAuthenticated) {
-          // Redirect to login, then back here
+          // Send user to login, and tell login page to come back here afterwards
           navigate('/login', { state: { from: location } });
       } else {
           callback();
@@ -269,12 +276,19 @@ export const DeviceDetail: React.FC = () => {
   if (!loading && device && !isAuthenticated) {
       return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-fade-in">
-                <div className="bg-slate-900 p-6 text-white text-center">
+            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-fade-in flex flex-col max-h-[90vh]">
+                <div className="bg-slate-900 p-6 text-white text-center shrink-0">
                     <h2 className="text-xl font-bold">{device.name}</h2>
                     <p className="opacity-80 text-sm mt-1">{device.code}</p>
                 </div>
-                <div className="p-6 space-y-4">
+                <div className="p-6 space-y-4 overflow-y-auto">
+                     {/* Image in Popup */}
+                     {device.imageUrl && (
+                         <div className="w-full h-40 bg-gray-100 rounded-lg overflow-hidden mb-4">
+                             <img src={device.imageUrl} alt={device.name} className="w-full h-full object-contain" />
+                         </div>
+                     )}
+
                      <div className="grid grid-cols-2 gap-4 text-sm">
                          <div>
                              <p className="text-gray-500">Trạng thái</p>
@@ -288,10 +302,16 @@ export const DeviceDetail: React.FC = () => {
                              <p className="text-gray-500">Danh mục</p>
                              <p className="font-semibold text-gray-900">{device.category}</p>
                          </div>
-                         <div>
-                             <p className="text-gray-500">Người giữ</p>
-                             <p className="font-semibold text-gray-900">{device.assignedTo ? 'Có người giữ' : 'Không'}</p>
-                         </div>
+                         
+                         {/* Render Dynamic Fields in Popup */}
+                         {config?.customFields.map(field => (
+                             <div key={field.key}>
+                                 <p className="text-gray-500">{field.label}</p>
+                                 <p className="font-semibold text-gray-900">
+                                     {device.customFields?.[field.key] || '-'}
+                                 </p>
+                             </div>
+                         ))}
                      </div>
                      
                      <div className="border-t border-gray-100 pt-4 space-y-3">
@@ -307,7 +327,7 @@ export const DeviceDetail: React.FC = () => {
                              Báo cáo tình trạng
                          </button>
                          
-                         <button onClick={() => navigate('/login')} className="w-full flex items-center justify-center py-2 text-gray-600 hover:text-gray-900">
+                         <button onClick={() => navigate('/login', { state: { from: location } })} className="w-full flex items-center justify-center py-2 text-gray-600 hover:text-gray-900">
                             <LogIn className="w-4 h-4 mr-2" /> Đăng nhập để xem chi tiết
                          </button>
                      </div>
@@ -382,22 +402,22 @@ export const DeviceDetail: React.FC = () => {
               <span className="text-sm font-semibold text-gray-500 w-full">Tác vụ nhanh:</span>
               
               <div className="flex flex-wrap gap-3">
-                {/* Image Upload for Report */}
+                {/* Status Report Image Upload */}
                 <div className="flex items-center space-x-2">
                     <input 
                         type="file" 
                         accept="image/*" 
                         className="hidden" 
-                        ref={fileInputRef}
-                        onChange={handleImageUpload}
+                        ref={reportFileInputRef}
+                        onChange={handleReportImageUpload}
                     />
                     <button 
                         type="button" 
-                        onClick={() => fileInputRef.current?.click()}
+                        onClick={() => reportFileInputRef.current?.click()}
                         className={`flex items-center px-4 py-2 rounded-lg border transition-colors ${reportImage ? 'bg-green-50 border-green-200 text-green-700' : 'bg-gray-50 border-gray-200 text-gray-700'}`}
                     >
                         {reportImage ? <CheckCircle className="w-4 h-4 mr-2" /> : <Camera className="w-4 h-4 mr-2" />}
-                        {reportImage ? 'Đã có ảnh' : 'Chụp/Tải ảnh'}
+                        {reportImage ? 'Đã có ảnh' : 'Chụp/Tải ảnh báo cáo'}
                     </button>
                 </div>
 
@@ -458,74 +478,119 @@ export const DeviceDetail: React.FC = () => {
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Tên thiết bị</label>
-              <input 
-                {...register('name', { required: true })}
-                disabled={!isEditing}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg disabled:bg-gray-50 disabled:text-gray-500"
-              />
-              {errors.name && <span className="text-red-500 text-xs">Bắt buộc</span>}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Mã tài sản</label>
-              <input 
-                {...register('code', { required: true })}
-                disabled={!isEditing}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg disabled:bg-gray-50 disabled:text-gray-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Danh mục</label>
-              <select 
-                {...register('category')}
-                disabled={!isEditing}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg disabled:bg-gray-50 disabled:text-gray-500"
-              >
-                {config?.categories.map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Trạng thái</label>
-              <select 
-                {...register('status')}
-                disabled={!isEditing && (user?.role !== Role.ADMIN && user?.role !== Role.MANAGER)}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg disabled:bg-gray-50 disabled:text-gray-500"
-              >
-                 <option value={DeviceStatus.AVAILABLE}>Sẵn sàng</option>
-                 <option value={DeviceStatus.IN_USE}>Đang sử dụng</option>
-                 <option value={DeviceStatus.BROKEN}>Hỏng / Mất</option>
-                 <option value={DeviceStatus.MAINTENANCE}>Bảo trì</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Vị trí lưu trữ</label>
-              <input 
-                {...register('location')}
-                disabled={!isEditing}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg disabled:bg-gray-50 disabled:text-gray-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Ngày mua</label>
-              <input 
-                type="date"
-                {...register('purchaseDate')}
-                disabled={!isEditing}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg disabled:bg-gray-50 disabled:text-gray-500"
-              />
-            </div>
+          {/* MAIN FORM */}
+          <div className="flex flex-col md:flex-row gap-6">
             
-            {/* DYNAMIC FIELDS RENDER */}
-            {config?.customFields.map((field) => (
+            {/* Main Device Image & Upload */}
+            <div className="w-full md:w-1/3 flex flex-col items-center space-y-3">
+                <div 
+                    onClick={() => isEditing && mainImageInputRef.current?.click()}
+                    className={`relative w-48 h-48 bg-gray-100 rounded-xl overflow-hidden border-2 ${isEditing ? 'border-dashed border-blue-300 cursor-pointer hover:bg-blue-50' : 'border-gray-200'}`}
+                >
+                    {deviceMainImage ? (
+                        <img src={deviceMainImage} alt="Device" className="w-full h-full object-cover" />
+                    ) : (
+                        <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                            <ImagePlus className="w-8 h-8 mb-2" />
+                            <span className="text-xs">Chưa có ảnh</span>
+                        </div>
+                    )}
+                    {isEditing && (
+                        <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                             <Camera className="w-8 h-8 text-white" />
+                        </div>
+                    )}
+                </div>
+                {isEditing && (
+                    <div className="text-center">
+                        <input 
+                            type="file" 
+                            accept="image/*" 
+                            className="hidden" 
+                            ref={mainImageInputRef}
+                            onChange={handleMainImageUpload}
+                        />
+                         <button type="button" onClick={() => mainImageInputRef.current?.click()} className="text-sm text-blue-600 hover:underline">
+                            Thay đổi ảnh
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {/* Inputs */}
+            <div className="w-full md:w-2/3 grid grid-cols-1 gap-6">
+                <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tên thiết bị</label>
+                <input 
+                    {...register('name', { required: true })}
+                    disabled={!isEditing}
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg disabled:bg-gray-50 disabled:text-gray-500"
+                />
+                {errors.name && <span className="text-red-500 text-xs">Bắt buộc</span>}
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Mã tài sản</label>
+                    <input 
+                        {...register('code', { required: true })}
+                        disabled={!isEditing}
+                        className="w-full px-4 py-2 border border-gray-200 rounded-lg disabled:bg-gray-50 disabled:text-gray-500"
+                    />
+                    </div>
+                    <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Danh mục</label>
+                    <select 
+                        {...register('category')}
+                        disabled={!isEditing}
+                        className="w-full px-4 py-2 border border-gray-200 rounded-lg disabled:bg-gray-50 disabled:text-gray-500"
+                    >
+                        {config?.categories.map(cat => (
+                            <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                    </select>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Trạng thái</label>
+                    <select 
+                        {...register('status')}
+                        disabled={!isEditing && (user?.role !== Role.ADMIN && user?.role !== Role.MANAGER)}
+                        className="w-full px-4 py-2 border border-gray-200 rounded-lg disabled:bg-gray-50 disabled:text-gray-500"
+                    >
+                        <option value={DeviceStatus.AVAILABLE}>Sẵn sàng</option>
+                        <option value={DeviceStatus.IN_USE}>Đang sử dụng</option>
+                        <option value={DeviceStatus.BROKEN}>Hỏng / Mất</option>
+                        <option value={DeviceStatus.MAINTENANCE}>Bảo trì</option>
+                    </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Ngày mua</label>
+                        <input 
+                            type="date"
+                            {...register('purchaseDate')}
+                            disabled={!isEditing}
+                            className="w-full px-4 py-2 border border-gray-200 rounded-lg disabled:bg-gray-50 disabled:text-gray-500"
+                        />
+                    </div>
+                </div>
+
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Vị trí lưu trữ</label>
+                    <input 
+                        {...register('location')}
+                        disabled={!isEditing}
+                        className="w-full px-4 py-2 border border-gray-200 rounded-lg disabled:bg-gray-50 disabled:text-gray-500"
+                    />
+                </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-gray-50">
+             {/* DYNAMIC FIELDS RENDER */}
+             {config?.customFields.map((field) => (
                 <div key={field.key}>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                         {field.label} {field.required && <span className="text-red-500">*</span>}
