@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import { ArrowLeft, Save, Trash2, Printer, AlertTriangle, CheckCircle, Loader2, UserMinus, UserPlus } from 'lucide-react';
+import { ArrowLeft, Save, Trash2, Printer, AlertTriangle, CheckCircle, Loader2, UserMinus, UserPlus, Camera, Upload, LogIn } from 'lucide-react';
 import { db } from '../services/mockDatabase';
-import { Device, DeviceStatus, Role, DeviceLog } from '../types';
+import { Device, DeviceStatus, Role, DeviceLog, SystemConfig } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { QRCodeWrapper } from '../components/QRCodeWrapper';
 import { v4 as uuidv4 } from 'uuid';
@@ -11,17 +11,30 @@ import { v4 as uuidv4 } from 'uuid';
 export const DeviceDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   
   const [device, setDevice] = useState<Device | null>(null);
+  const [config, setConfig] = useState<SystemConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [showQR, setShowQR] = useState(false);
 
+  // Image Upload State
+  const [reportImage, setReportImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     const init = async () => {
+        const [foundDevice, sysConfig] = await Promise.all([
+             id === 'new' ? null : db.getDeviceById(id || ''),
+             db.getConfig()
+        ]);
+
+        setConfig(sysConfig);
+
         const isNew = id === 'new';
         const isEditMode = searchParams.get('edit') === 'true';
         const isQRMode = searchParams.get('qr') === 'true';
@@ -32,28 +45,30 @@ export const DeviceDetail: React.FC = () => {
                 id: uuidv4(),
                 name: '',
                 code: `EQ-${Math.floor(Math.random() * 10000)}`,
-                category: 'Điện tử',
+                category: sysConfig.categories[0] || 'Khác',
                 status: DeviceStatus.AVAILABLE,
                 location: '',
                 purchaseDate: new Date().toISOString().split('T')[0],
                 history: [],
-                imageUrl: 'https://picsum.photos/200/200'
+                imageUrl: 'https://picsum.photos/200/200',
+                customFields: {}
             });
             setLoading(false);
         } else {
-            const found = await db.getDeviceById(id || '');
-            if (found) {
-                setDevice(found);
+            if (foundDevice) {
+                setDevice(foundDevice);
                 setIsEditing(isEditMode);
                 setShowQR(isQRMode);
             } else {
-                navigate('/devices');
+                // If public user scans bad code, keep them here but show error? 
+                // Or redirect? Let's redirect to login for now if not found.
+                if (isAuthenticated) navigate('/devices');
             }
             setLoading(false);
         }
     };
     init();
-  }, [id, searchParams, navigate]);
+  }, [id, searchParams, navigate, isAuthenticated]);
 
   const { register, handleSubmit, formState: { errors }, setValue } = useForm<Device>();
 
@@ -66,8 +81,42 @@ export const DeviceDetail: React.FC = () => {
       setValue('location', device.location);
       setValue('purchaseDate', device.purchaseDate);
       setValue('description', device.description);
+      // Set dynamic fields
+      if (device.customFields && config) {
+          config.customFields.forEach(field => {
+             setValue(`customFields.${field.key}` as any, device.customFields![field.key]); 
+          });
+      }
     }
-  }, [device, setValue]);
+  }, [device, setValue, config]);
+
+  // --- IMAGE HANDLING ---
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+              // Simple client-side resize to avoid massive strings in Sheet
+              const img = new Image();
+              img.src = reader.result as string;
+              img.onload = () => {
+                  const canvas = document.createElement('canvas');
+                  const MAX_WIDTH = 800;
+                  const scale = MAX_WIDTH / img.width;
+                  canvas.width = MAX_WIDTH;
+                  canvas.height = img.height * scale;
+                  
+                  const ctx = canvas.getContext('2d');
+                  ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+                  
+                  // Compression 0.7
+                  const compressed = canvas.toDataURL('image/jpeg', 0.7);
+                  setReportImage(compressed);
+              };
+          };
+          reader.readAsDataURL(file);
+      }
+  };
 
   const onSubmit = async (data: Device) => {
     if (!device || !user) return;
@@ -110,7 +159,8 @@ export const DeviceDetail: React.FC = () => {
             date: new Date().toISOString(),
             action: actionNote.toUpperCase(),
             performedBy: user.fullName,
-            notes: `Chuyển trạng thái sang ${newStatus}`
+            notes: `Chuyển trạng thái sang ${newStatus}`,
+            reportImageUrl: reportImage || undefined // Add image to log
         };
 
         const updated = { 
@@ -121,6 +171,7 @@ export const DeviceDetail: React.FC = () => {
         
         await db.saveDevice(updated);
         setDevice(updated);
+        setReportImage(null); // Reset image
     } catch (e) {
         alert("Lỗi khi cập nhật trạng thái");
     } finally {
@@ -128,67 +179,84 @@ export const DeviceDetail: React.FC = () => {
     }
   };
 
-  // --- CHECK-IN / CHECK-OUT LOGIC ---
-  const handleBorrow = async () => {
-    if (!device || !user) return;
-    if (device.status !== DeviceStatus.AVAILABLE) {
-        alert("Thiết bị không sẵn sàng để mượn.");
-        return;
-    }
-    setSaving(true);
-    try {
-        const log: DeviceLog = {
-            id: uuidv4(),
-            date: new Date().toISOString(),
-            action: 'MƯỢN THIẾT BỊ',
-            performedBy: user.fullName,
-            notes: `Người mượn: ${user.fullName} (${user.username})`
-        };
-
-        const updated: Device = {
-            ...device,
-            status: DeviceStatus.IN_USE,
-            assignedTo: user.id,
-            history: [log, ...device.history]
-        };
-        await db.saveDevice(updated);
-        setDevice(updated);
-    } catch(e) {
-        alert("Lỗi khi đăng ký mượn.");
-    } finally {
-        setSaving(false);
-    }
+  // --- ACTIONS WITH AUTH CHECK ---
+  const requireAuthAndAction = (callback: () => void) => {
+      if (!isAuthenticated) {
+          // Redirect to login, then back here
+          navigate('/login', { state: { from: location } });
+      } else {
+          callback();
+      }
   };
 
-  const handleReturn = async () => {
-    if (!device || !user) return;
-    setSaving(true);
-    try {
-        const log: DeviceLog = {
-            id: uuidv4(),
-            date: new Date().toISOString(),
-            action: 'TRẢ THIẾT BỊ',
-            performedBy: user.fullName,
-            notes: `Đã trả lại kho.`
-        };
+  const handleBorrow = () => {
+      requireAuthAndAction(async () => {
+        if (!device || !user) return;
+        if (device.status !== DeviceStatus.AVAILABLE) {
+            alert("Thiết bị không sẵn sàng để mượn.");
+            return;
+        }
+        setSaving(true);
+        try {
+            const log: DeviceLog = {
+                id: uuidv4(),
+                date: new Date().toISOString(),
+                action: 'MƯỢN THIẾT BỊ',
+                performedBy: user.fullName,
+                notes: `Người mượn: ${user.fullName} (${user.username})`,
+                reportImageUrl: reportImage || undefined
+            };
 
-        const updated: Device = {
-            ...device,
-            status: DeviceStatus.AVAILABLE,
-            assignedTo: undefined,
-            history: [log, ...device.history]
-        };
-        await db.saveDevice(updated);
-        setDevice(updated);
-    } catch(e) {
-        alert("Lỗi khi trả thiết bị.");
-    } finally {
-        setSaving(false);
-    }
+            const updated: Device = {
+                ...device,
+                status: DeviceStatus.IN_USE,
+                assignedTo: user.id,
+                history: [log, ...device.history]
+            };
+            await db.saveDevice(updated);
+            setDevice(updated);
+            setReportImage(null);
+        } catch(e) {
+            alert("Lỗi khi đăng ký mượn.");
+        } finally {
+            setSaving(false);
+        }
+      });
+  };
+
+  const handleReturn = () => {
+    requireAuthAndAction(async () => {
+        if (!device || !user) return;
+        setSaving(true);
+        try {
+            const log: DeviceLog = {
+                id: uuidv4(),
+                date: new Date().toISOString(),
+                action: 'TRẢ THIẾT BỊ',
+                performedBy: user.fullName,
+                notes: `Đã trả lại kho.`,
+                reportImageUrl: reportImage || undefined
+            };
+
+            const updated: Device = {
+                ...device,
+                status: DeviceStatus.AVAILABLE,
+                assignedTo: undefined,
+                history: [log, ...device.history]
+            };
+            await db.saveDevice(updated);
+            setDevice(updated);
+            setReportImage(null);
+        } catch(e) {
+            alert("Lỗi khi trả thiết bị.");
+        } finally {
+            setSaving(false);
+        }
+    });
   };
 
   const handleDelete = async () => {
-    if (confirm('Bạn có chắc chắn muốn xóa thiết bị này? Hành động này không thể hoàn tác.')) {
+    if (confirm('Bạn có chắc chắn muốn xóa thiết bị này?')) {
       if (device) {
           setSaving(true);
           await db.deleteDevice(device.id);
@@ -197,36 +265,57 @@ export const DeviceDetail: React.FC = () => {
     }
   };
 
-  const printQR = () => {
-    const printWindow = window.open('', '_blank');
-    if (printWindow && device) {
-      printWindow.document.write(`
-        <html>
-          <head><title>In mã QR - ${device.code}</title></head>
-          <body style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; font-family:sans-serif;">
-            <h1>${device.name}</h1>
-            <p>${device.code}</p>
-            <div id="qr-target"></div>
-            <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-            <script>
-              new QRCode(document.getElementById("qr-target"), {
-                text: "${window.location.origin}/#/devices/${device.id}",
-                width: 256,
-                height: 256
-              });
-              setTimeout(() => window.print(), 500);
-            </script>
-          </body>
-        </html>
-      `);
-      printWindow.document.close();
-    }
-  };
-
-  const canEdit = user?.role === Role.ADMIN || user?.role === Role.MANAGER;
-  const canDelete = user?.role === Role.ADMIN;
-  // User can return if they are the one assigned OR if they are an admin/manager
-  const canReturn = device?.assignedTo === user?.id || user?.role === Role.ADMIN || user?.role === Role.MANAGER;
+  // --- PUBLIC POPUP VIEW ---
+  if (!loading && device && !isAuthenticated) {
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-fade-in">
+                <div className="bg-slate-900 p-6 text-white text-center">
+                    <h2 className="text-xl font-bold">{device.name}</h2>
+                    <p className="opacity-80 text-sm mt-1">{device.code}</p>
+                </div>
+                <div className="p-6 space-y-4">
+                     <div className="grid grid-cols-2 gap-4 text-sm">
+                         <div>
+                             <p className="text-gray-500">Trạng thái</p>
+                             <p className="font-semibold text-gray-900">{device.status}</p>
+                         </div>
+                         <div>
+                             <p className="text-gray-500">Vị trí</p>
+                             <p className="font-semibold text-gray-900">{device.location}</p>
+                         </div>
+                         <div>
+                             <p className="text-gray-500">Danh mục</p>
+                             <p className="font-semibold text-gray-900">{device.category}</p>
+                         </div>
+                         <div>
+                             <p className="text-gray-500">Người giữ</p>
+                             <p className="font-semibold text-gray-900">{device.assignedTo ? 'Có người giữ' : 'Không'}</p>
+                         </div>
+                     </div>
+                     
+                     <div className="border-t border-gray-100 pt-4 space-y-3">
+                         <p className="text-center text-sm text-gray-500 mb-2">Bạn muốn thực hiện thao tác?</p>
+                         
+                         {device.status === DeviceStatus.AVAILABLE && (
+                             <button onClick={handleBorrow} className="w-full py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">
+                                 Đăng ký mượn
+                             </button>
+                         )}
+                         
+                         <button onClick={() => requireAuthAndAction(() => {})} className="w-full py-2 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg font-medium hover:bg-amber-100">
+                             Báo cáo tình trạng
+                         </button>
+                         
+                         <button onClick={() => navigate('/login')} className="w-full flex items-center justify-center py-2 text-gray-600 hover:text-gray-900">
+                            <LogIn className="w-4 h-4 mr-2" /> Đăng nhập để xem chi tiết
+                         </button>
+                     </div>
+                </div>
+            </div>
+        </div>
+      );
+  }
 
   if (loading) return <div className="flex justify-center p-10"><Loader2 className="animate-spin text-blue-600"/></div>;
   if (!device) return <div>Không tìm thấy thiết bị.</div>;
@@ -251,7 +340,7 @@ export const DeviceDetail: React.FC = () => {
                <Printer className="w-4 h-4 mr-2" /> {showQR ? 'Ẩn QR' : 'Hiện QR'}
              </button>
           )}
-          {!isEditing && canEdit && (
+          {!isEditing && (user?.role === Role.ADMIN || user?.role === Role.MANAGER) && (
             <button 
               onClick={() => setIsEditing(true)}
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
@@ -259,7 +348,7 @@ export const DeviceDetail: React.FC = () => {
               Sửa thông tin
             </button>
           )}
-          {!isEditing && canDelete && (
+          {!isEditing && user?.role === Role.ADMIN && (
             <button 
               onClick={handleDelete}
               className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700"
@@ -273,15 +362,8 @@ export const DeviceDetail: React.FC = () => {
       {/* QR Code Section */}
       {showQR && (
         <div className="bg-white p-6 rounded-xl shadow-lg border border-blue-100 flex flex-col items-center justify-center animate-fade-in">
-          <h3 className="text-lg font-bold mb-4">Quét để quản lý thiết bị</h3>
           <QRCodeWrapper value={`${window.location.origin}/#/devices/${device.id}`} size={200} />
           <p className="mt-4 text-sm text-gray-500">Mã: {device.code}</p>
-          <button 
-            onClick={printQR}
-            className="mt-4 text-blue-600 hover:underline text-sm"
-          >
-            In nhãn dán
-          </button>
         </div>
       )}
 
@@ -296,61 +378,83 @@ export const DeviceDetail: React.FC = () => {
           
           {/* Quick Actions Bar */}
           {!isEditing && (
-            <div className="flex flex-wrap gap-3 pb-6 border-b border-gray-100">
-              <span className="text-sm font-semibold text-gray-500 w-full mb-1">Tác vụ nhanh:</span>
+            <div className="pb-6 border-b border-gray-100 space-y-4">
+              <span className="text-sm font-semibold text-gray-500 w-full">Tác vụ nhanh:</span>
               
-              {/* Borrow / Return Logic */}
-              {device.status === DeviceStatus.AVAILABLE && (
-                  <button
-                    type="button"
-                    onClick={handleBorrow}
-                    disabled={saving}
-                    className="flex items-center px-4 py-2 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 border border-blue-200 transition-colors"
-                  >
-                    <UserPlus className="w-4 h-4 mr-2" /> Đăng ký Mượn
-                  </button>
-              )}
+              <div className="flex flex-wrap gap-3">
+                {/* Image Upload for Report */}
+                <div className="flex items-center space-x-2">
+                    <input 
+                        type="file" 
+                        accept="image/*" 
+                        className="hidden" 
+                        ref={fileInputRef}
+                        onChange={handleImageUpload}
+                    />
+                    <button 
+                        type="button" 
+                        onClick={() => fileInputRef.current?.click()}
+                        className={`flex items-center px-4 py-2 rounded-lg border transition-colors ${reportImage ? 'bg-green-50 border-green-200 text-green-700' : 'bg-gray-50 border-gray-200 text-gray-700'}`}
+                    >
+                        {reportImage ? <CheckCircle className="w-4 h-4 mr-2" /> : <Camera className="w-4 h-4 mr-2" />}
+                        {reportImage ? 'Đã có ảnh' : 'Chụp/Tải ảnh'}
+                    </button>
+                </div>
 
-              {device.status === DeviceStatus.IN_USE && canReturn && (
-                  <button
+                {/* Borrow / Return Logic */}
+                {device.status === DeviceStatus.AVAILABLE && (
+                    <button
+                        type="button"
+                        onClick={handleBorrow}
+                        disabled={saving}
+                        className="flex items-center px-4 py-2 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 border border-blue-200 transition-colors"
+                    >
+                        <UserPlus className="w-4 h-4 mr-2" /> Đăng ký Mượn
+                    </button>
+                )}
+
+                {device.status === DeviceStatus.IN_USE && (
+                    <button
+                        type="button"
+                        onClick={handleReturn}
+                        disabled={saving}
+                        className="flex items-center px-4 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 border border-green-200 transition-colors"
+                    >
+                        <UserMinus className="w-4 h-4 mr-2" /> Trả thiết bị
+                    </button>
+                )}
+
+                <button 
                     type="button"
-                    onClick={handleReturn}
+                    onClick={() => handleStatusChange(DeviceStatus.BROKEN, "BÁO HỎNG")}
+                    disabled={saving}
+                    className="flex items-center px-4 py-2 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 border border-red-200 transition-colors"
+                >
+                    <AlertTriangle className="w-4 h-4 mr-2" /> Báo hỏng / Mất
+                </button>
+                
+                {(user?.role === Role.ADMIN) && device.status === DeviceStatus.BROKEN && (
+                    <button 
+                    type="button"
+                    onClick={() => handleStatusChange(DeviceStatus.MAINTENANCE, "GỬI BẢO TRÌ")}
+                    disabled={saving}
+                    className="flex items-center px-4 py-2 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 border border-amber-200 transition-colors"
+                    >
+                    Gửi bảo trì
+                    </button>
+                )}
+                {(user?.role === Role.ADMIN) && (device.status === DeviceStatus.MAINTENANCE || device.status === DeviceStatus.BROKEN) && (
+                    <button 
+                    type="button"
+                    onClick={() => handleStatusChange(DeviceStatus.AVAILABLE, "HOÀN THÀNH SỬA CHỮA")}
                     disabled={saving}
                     className="flex items-center px-4 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 border border-green-200 transition-colors"
-                  >
-                    <UserMinus className="w-4 h-4 mr-2" /> Trả thiết bị
-                  </button>
-              )}
-
-              <button 
-                type="button"
-                onClick={() => handleStatusChange(DeviceStatus.BROKEN, "BÁO HỎNG")}
-                disabled={saving}
-                className="flex items-center px-4 py-2 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 border border-red-200 transition-colors"
-              >
-                <AlertTriangle className="w-4 h-4 mr-2" /> Báo hỏng / Mất
-              </button>
-              
-              {(canEdit) && device.status === DeviceStatus.BROKEN && (
-                <button 
-                  type="button"
-                  onClick={() => handleStatusChange(DeviceStatus.MAINTENANCE, "GỬI BẢO TRÌ")}
-                  disabled={saving}
-                  className="flex items-center px-4 py-2 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 border border-amber-200 transition-colors"
-                >
-                   Gửi bảo trì
-                </button>
-              )}
-               {(canEdit) && (device.status === DeviceStatus.MAINTENANCE || device.status === DeviceStatus.BROKEN) && (
-                <button 
-                  type="button"
-                  onClick={() => handleStatusChange(DeviceStatus.AVAILABLE, "HOÀN THÀNH SỬA CHỮA")}
-                  disabled={saving}
-                  className="flex items-center px-4 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 border border-green-200 transition-colors"
-                >
-                   <CheckCircle className="w-4 h-4 mr-2" /> Đã sửa xong / Sẵn sàng
-                </button>
-              )}
+                    >
+                    <CheckCircle className="w-4 h-4 mr-2" /> Đã sửa xong
+                    </button>
+                )}
+              </div>
+              {reportImage && <div className="text-xs text-green-600">Đã đính kèm ảnh cho hành động tiếp theo.</div>}
             </div>
           )}
 
@@ -381,11 +485,9 @@ export const DeviceDetail: React.FC = () => {
                 disabled={!isEditing}
                 className="w-full px-4 py-2 border border-gray-200 rounded-lg disabled:bg-gray-50 disabled:text-gray-500"
               >
-                <option value="Điện tử">Điện tử</option>
-                <option value="Nội thất">Nội thất</option>
-                <option value="Thí nghiệm">Thí nghiệm</option>
-                <option value="CNTT">Công nghệ thông tin</option>
-                <option value="Khác">Khác</option>
+                {config?.categories.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                ))}
               </select>
             </div>
 
@@ -393,7 +495,7 @@ export const DeviceDetail: React.FC = () => {
               <label className="block text-sm font-medium text-gray-700 mb-1">Trạng thái</label>
               <select 
                 {...register('status')}
-                disabled={!isEditing && !canEdit}
+                disabled={!isEditing && (user?.role !== Role.ADMIN && user?.role !== Role.MANAGER)}
                 className="w-full px-4 py-2 border border-gray-200 rounded-lg disabled:bg-gray-50 disabled:text-gray-500"
               >
                  <option value={DeviceStatus.AVAILABLE}>Sẵn sàng</option>
@@ -421,6 +523,38 @@ export const DeviceDetail: React.FC = () => {
                 className="w-full px-4 py-2 border border-gray-200 rounded-lg disabled:bg-gray-50 disabled:text-gray-500"
               />
             </div>
+            
+            {/* DYNAMIC FIELDS RENDER */}
+            {config?.customFields.map((field) => (
+                <div key={field.key}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                        {field.label} {field.required && <span className="text-red-500">*</span>}
+                    </label>
+                    {field.type === 'textarea' ? (
+                        <textarea 
+                            {...register(`customFields.${field.key}` as any, { required: field.required })}
+                            disabled={!isEditing}
+                            className="w-full px-4 py-2 border border-gray-200 rounded-lg disabled:bg-gray-50"
+                        />
+                    ) : field.type === 'select' ? (
+                        <select 
+                            {...register(`customFields.${field.key}` as any, { required: field.required })}
+                            disabled={!isEditing}
+                            className="w-full px-4 py-2 border border-gray-200 rounded-lg disabled:bg-gray-50"
+                        >
+                            <option value="">-- Chọn --</option>
+                            {field.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                        </select>
+                    ) : (
+                        <input 
+                            type={field.type}
+                            {...register(`customFields.${field.key}` as any, { required: field.required })}
+                            disabled={!isEditing}
+                            className="w-full px-4 py-2 border border-gray-200 rounded-lg disabled:bg-gray-50"
+                        />
+                    )}
+                </div>
+            ))}
           </div>
 
           <div>
@@ -475,24 +609,28 @@ export const DeviceDetail: React.FC = () => {
                           <span className="text-white text-xs font-bold">{log.performedBy.charAt(0).toUpperCase()}</span>
                         </span>
                       </div>
-                      <div className="min-w-0 flex-1 pt-1.5 flex justify-between space-x-4">
+                      <div className="min-w-0 flex-1 pt-1.5 flex flex-col sm:flex-row justify-between sm:space-x-4 gap-2">
                         <div>
                           <p className="text-sm text-gray-500">
                             {log.action} <span className="font-medium text-gray-900">bởi {log.performedBy}</span>
                           </p>
                           {log.notes && <p className="text-sm text-gray-500 mt-1 italic">"{log.notes}"</p>}
                         </div>
-                        <div className="text-right text-sm whitespace-nowrap text-gray-500">
-                          {new Date(log.date).toLocaleDateString()} {new Date(log.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                        <div className="flex flex-col items-end gap-1">
+                            <span className="text-right text-sm whitespace-nowrap text-gray-500">
+                                {new Date(log.date).toLocaleDateString()} {new Date(log.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                            </span>
+                            {log.reportImageUrl && (
+                                <a href={log.reportImageUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 underline flex items-center">
+                                    <Camera className="w-3 h-3 mr-1" /> Xem ảnh
+                                </a>
+                            )}
                         </div>
                       </div>
                     </div>
                   </div>
                 </li>
               ))}
-              {device.history.length === 0 && (
-                <p className="text-gray-500 italic text-sm">Chưa có lịch sử.</p>
-              )}
             </ul>
           </div>
         </div>

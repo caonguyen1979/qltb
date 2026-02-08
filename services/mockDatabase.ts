@@ -1,4 +1,4 @@
-import { Device, DeviceStatus, Role, User } from '../types';
+import { Device, DeviceStatus, Role, User, SystemConfig } from '../types';
 
 /**
  * Hybrid Database Service
@@ -10,6 +10,13 @@ const LOCAL_STORAGE_KEYS = {
   CONFIG: 'eduequip_config'
 };
 
+const DEFAULT_CONFIG: SystemConfig = {
+    schoolName: 'Trường THPT Tương Lai',
+    academicYear: '2023-2024',
+    categories: ['Điện tử', 'Nội thất', 'Thí nghiệm', 'CNTT', 'Khác'],
+    customFields: []
+};
+
 // Hàm băm mật khẩu đơn giản sử dụng SHA-256 (Client-side)
 export const hashPassword = async (text: string): Promise<string> => {
   const msgBuffer = new TextEncoder().encode(text);
@@ -18,7 +25,6 @@ export const hashPassword = async (text: string): Promise<string> => {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 };
 
-// Admin mặc định: pass là 'admin' -> hash SHA256 của 'admin'
 const DEFAULT_ADMIN_HASH = "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918";
 
 const seedUsers: User[] = [
@@ -41,24 +47,30 @@ export const db = {
         if (!res.ok) throw new Error('API Error');
         const data = await res.json();
         
-        // Parse boolean fields that might come as strings from Sheet
         const parsedData = data.map((u: any) => ({
             ...u,
             mustChangePassword: String(u.mustChangePassword).toLowerCase() === 'true'
         }));
 
-        if (Array.isArray(parsedData) && parsedData.length === 0) return seedUsers;
+        const hasAdmin = parsedData.some((u: User) => u.username === 'admin');
+        if (!hasAdmin) {
+            return [seedUsers[0], ...parsedData];
+        }
+
         return parsedData;
     } catch (e) {
         console.warn("Falling back to LocalStorage (Users)", e);
         const local = localStorage.getItem(LOCAL_STORAGE_KEYS.USERS);
-        return local ? JSON.parse(local) : seedUsers;
+        let localData = local ? JSON.parse(local) : seedUsers;
+        if (Array.isArray(localData) && !localData.some((u: User) => u.username === 'admin')) {
+             localData = [seedUsers[0], ...localData];
+        }
+        return localData;
     }
   },
   
   findUser: async (username: string): Promise<User | undefined> => {
     const users = await db.getUsers();
-    // Case insensitive search for username/email
     return users.find(u => 
       u.username.toLowerCase() === username.toLowerCase() || 
       u.email.toLowerCase() === username.toLowerCase()
@@ -74,12 +86,11 @@ export const db = {
         const exists = users.some(u => u.id === user.id);
 
         const method = exists ? 'PUT' : 'POST';
-        const res = await fetch('/api/sheet?type=users', {
+        await fetch('/api/sheet?type=users', {
             method,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(user)
         });
-        if (!res.ok) throw new Error('Save failed');
     } catch (e) {
         const users = await db.getUsers();
         const index = users.findIndex(u => u.id === user.id);
@@ -90,6 +101,10 @@ export const db = {
   },
 
   deleteUser: async (id: string): Promise<void> => {
+    if (id === '1') {
+        alert("Không thể xóa tài khoản Quản trị mặc định.");
+        return;
+    }
     try {
         await fetch(`/api/sheet?type=users&id=${id}`, { method: 'DELETE' });
     } catch (e) {
@@ -103,14 +118,17 @@ export const db = {
   getDevices: async (): Promise<Device[]> => {
     try {
         const res = await fetch('/api/sheet?type=data');
-        if (!res.ok) {
-            const errText = await res.text();
-            console.error("API FAILED DETAILS:", errText);
-            throw new Error('API Unavailable');
-        }
-        return await res.json();
+        if (!res.ok) throw new Error('API Unavailable');
+        const data = await res.json();
+        
+        // Parse customFields if stored as JSON string in sheet
+        return data.map((d: any) => {
+            if (typeof d.customFields === 'string') {
+                try { d.customFields = JSON.parse(d.customFields); } catch(e) { d.customFields = {}; }
+            }
+            return d;
+        });
     } catch (e) {
-        console.warn("Using LocalStorage for Devices (API unavailable)");
         const local = localStorage.getItem(LOCAL_STORAGE_KEYS.DEVICES);
         return local ? JSON.parse(local) : [];
     }
@@ -122,23 +140,25 @@ export const db = {
   },
 
   saveDevice: async (device: Device): Promise<void> => {
+    // Stringify customFields before saving to Sheet
+    const payload = {
+        ...device,
+        customFields: JSON.stringify(device.customFields || {})
+    };
+
     try {
         const resList = await fetch('/api/sheet?type=data');
         if (!resList.ok) throw new Error("API Unavailable");
         
-        const devices: Device[] = await resList.json();
-        const exists = devices.some(d => d.id === device.id);
+        const devices = await resList.json();
+        const exists = devices.some((d: any) => d.id === device.id);
 
         const method = exists ? 'PUT' : 'POST';
-        const res = await fetch('/api/sheet?type=data', {
+        await fetch('/api/sheet?type=data', {
             method,
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(device)
+            body: JSON.stringify(payload)
         });
-        if (!res.ok) {
-             const err = await res.json();
-             throw new Error(err.message);
-        }
     } catch (e) {
         const devices = await db.getDevices();
         const index = devices.findIndex(d => d.id === device.id);
@@ -150,8 +170,7 @@ export const db = {
 
   deleteDevice: async (id: string): Promise<void> => {
     try {
-        const res = await fetch(`/api/sheet?type=data&id=${id}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error('API Unavailable');
+        await fetch(`/api/sheet?type=data&id=${id}`, { method: 'DELETE' });
     } catch (e) {
         const devices = await db.getDevices();
         const filtered = devices.filter(d => d.id !== id);
@@ -159,12 +178,77 @@ export const db = {
     }
   },
 
-  getConfig: () => {
-    const local = localStorage.getItem(LOCAL_STORAGE_KEYS.CONFIG);
-    return local ? JSON.parse(local) : { schoolName: 'Trường THPT Tương Lai', academicYear: '2023-2024' };
+  // --- CONFIG ---
+  getConfig: async (): Promise<SystemConfig> => {
+    try {
+        // Try fetching from 'config' sheet which acts as a Key-Value store
+        // Columns: key, value
+        const res = await fetch('/api/sheet?type=config');
+        if (!res.ok) throw new Error("Config Sheet API Unavailable");
+        
+        const rows = await res.json();
+        const configMap: any = { ...DEFAULT_CONFIG };
+
+        // Convert Rows [{key: 'schoolName', value: 'ABC'}] to Object
+        rows.forEach((r: any) => {
+            if (r.key && r.value) {
+                try {
+                    // Try parsing JSON for arrays/objects (categories, customFields)
+                    configMap[r.key] = JSON.parse(r.value);
+                } catch {
+                    // Fallback to plain string
+                    configMap[r.key] = r.value;
+                }
+            }
+        });
+        
+        // Merge with defaults to ensure all fields exist
+        return { ...DEFAULT_CONFIG, ...configMap };
+
+    } catch (e) {
+        console.warn("Using LocalStorage Config");
+        const local = localStorage.getItem(LOCAL_STORAGE_KEYS.CONFIG);
+        return local ? { ...DEFAULT_CONFIG, ...JSON.parse(local) } : DEFAULT_CONFIG;
+    }
   },
 
-  saveConfig: (config: any) => {
-    localStorage.setItem(LOCAL_STORAGE_KEYS.CONFIG, JSON.stringify(config));
+  saveConfig: async (config: SystemConfig): Promise<void> => {
+    try {
+        // We need to save each key as a row in the 'config' sheet
+        // Since the generic API is row-based, we'll try to update existing keys or create new ones.
+        // NOTE: This implementation is simplified. In a real app, we'd batch this.
+        
+        // 1. Get current config rows to know IDs
+        const res = await fetch('/api/sheet?type=config');
+        let currentRows = [];
+        if (res.ok) currentRows = await res.json();
+
+        const keysToSave = ['schoolName', 'academicYear', 'categories', 'customFields'];
+
+        for (const key of keysToSave) {
+            const val = (config as any)[key];
+            const stringVal = typeof val === 'object' ? JSON.stringify(val) : val;
+            
+            const existingRow = currentRows.find((r: any) => r.key === key);
+            
+            if (existingRow) {
+                await fetch('/api/sheet?type=config', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: existingRow.id, key, value: stringVal })
+                });
+            } else {
+                await fetch('/api/sheet?type=config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: crypto.randomUUID(), key, value: stringVal })
+                });
+            }
+        }
+
+    } catch (e) {
+        console.error("Failed to save config remotely", e);
+        localStorage.setItem(LOCAL_STORAGE_KEYS.CONFIG, JSON.stringify(config));
+    }
   }
 };

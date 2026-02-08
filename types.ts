@@ -19,35 +19,49 @@ export interface User {
   email: string;
   role: Role;
   department?: string;
-  passwordHash?: string; // Mật khẩu đã mã hóa
-  mustChangePassword?: boolean; // Cờ bắt buộc đổi mật khẩu
-  lastLogin?: number; // Timestamp
-}
-
-export interface Device {
-  id: string;
-  name: string;
-  code: string; // Asset Code
-  category: string;
-  status: DeviceStatus;
-  location: string;
-  assignedTo?: string; // User ID
-  purchaseDate: string;
-  description?: string;
-  imageUrl?: string;
-  history: DeviceLog[];
+  passwordHash?: string;
+  mustChangePassword?: boolean;
+  lastLogin?: number;
 }
 
 export interface DeviceLog {
   id: string;
   date: string;
   action: string;
-  performedBy: string; // User Name
+  performedBy: string;
   notes?: string;
+  reportImageUrl?: string; // Ảnh báo cáo tình trạng
 }
 
-export interface AppConfig {
+// Định nghĩa cho trường dữ liệu tùy chỉnh
+export type FieldType = 'text' | 'number' | 'date' | 'select' | 'textarea';
+
+export interface CustomFieldDef {
+  key: string;      // Tên biến (VD: warrantyDate)
+  label: string;    // Nhãn hiển thị (VD: Hạn bảo hành)
+  type: FieldType;
+  options?: string[]; // Dùng cho loại select (ngăn cách bằng dấu phẩy)
+  required?: boolean;
+}
+
+export interface Device {
+  id: string;
+  name: string;
+  code: string;
+  category: string;
+  status: DeviceStatus;
+  location: string;
+  assignedTo?: string;
+  purchaseDate: string;
+  description?: string;
+  imageUrl?: string;
+  history: DeviceLog[];
+  customFields?: Record<string, any>; // Lưu dữ liệu động: { warrantyDate: '2024-01-01', provider: 'ABC' }
+}
+
+export interface SystemConfig {
   schoolName: string;
   academicYear: string;
-  googleSheetId?: string;
+  categories: string[]; // Danh sách danh mục động
+  customFields: CustomFieldDef[]; // Định nghĩa các trường tùy chỉnh
 }

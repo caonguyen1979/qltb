@@ -1,25 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Search, Filter, Edit, Eye, QrCode, Loader2 } from 'lucide-react';
+import { Plus, Search, Filter, Edit, Eye, QrCode, Loader2, RefreshCcw } from 'lucide-react';
 import { db } from '../services/mockDatabase';
-import { Device, Role, DeviceStatus } from '../types';
+import { Device, Role, DeviceStatus, SystemConfig } from '../types';
 import { useAuth } from '../context/AuthContext';
 
 export const DeviceList: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [devices, setDevices] = useState<Device[]>([]);
+  const [config, setConfig] = useState<SystemConfig | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  // Filters
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
+  const [filterCategory, setFilterCategory] = useState<string>('ALL');
+
+  const loadData = async () => {
+      setLoading(true);
+      const [devData, confData] = await Promise.all([
+          db.getDevices(),
+          db.getConfig()
+      ]);
+      setDevices(devData);
+      setConfig(confData);
+      setLoading(false);
+  };
 
   useEffect(() => {
-    const loadDevices = async () => {
-        const data = await db.getDevices();
-        setDevices(data);
-        setLoading(false);
-    };
-    loadDevices();
+    loadData();
   }, []);
 
   const filteredDevices = devices.filter(device => {
@@ -29,7 +39,9 @@ export const DeviceList: React.FC = () => {
       device.location.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesStatus = filterStatus === 'ALL' || device.status === filterStatus;
-    return matchesSearch && matchesStatus;
+    const matchesCategory = filterCategory === 'ALL' || device.category === filterCategory;
+
+    return matchesSearch && matchesStatus && matchesCategory;
   });
 
   const getStatusColor = (status: DeviceStatus) => {
@@ -60,42 +72,68 @@ export const DeviceList: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h1 className="text-2xl font-bold text-gray-900">Danh sách thiết bị</h1>
-        {user?.role === Role.ADMIN && (
-          <button 
-            onClick={() => navigate('/devices/new')}
-            className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Thêm thiết bị</span>
-          </button>
-        )}
+        <div className="flex space-x-2">
+            <button 
+                onClick={loadData}
+                className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                title="Tải lại dữ liệu"
+            >
+                <RefreshCcw className="w-5 h-5" />
+            </button>
+            {user?.role === Role.ADMIN && (
+            <button 
+                onClick={() => navigate('/devices/new')}
+                className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow-sm"
+            >
+                <Plus className="w-4 h-4" />
+                <span>Thêm thiết bị</span>
+            </button>
+            )}
+        </div>
       </div>
 
-      {/* Filters */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-4">
-        <div className="flex-1 relative">
+      {/* Advanced Filters */}
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 grid grid-cols-1 md:grid-cols-12 gap-4">
+        <div className="md:col-span-5 relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
           <input
             type="text"
             placeholder="Tìm theo tên, mã số, hoặc vị trí..."
-            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <div className="flex items-center space-x-2">
-          <Filter className="text-gray-400 w-5 h-5" />
-          <select 
-            className="border border-gray-200 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-          >
-            <option value="ALL">Tất cả trạng thái</option>
-            <option value={DeviceStatus.AVAILABLE}>Sẵn sàng</option>
-            <option value={DeviceStatus.IN_USE}>Đang mượn</option>
-            <option value={DeviceStatus.BROKEN}>Hỏng / Mất</option>
-            <option value={DeviceStatus.MAINTENANCE}>Bảo trì</option>
-          </select>
+        
+        <div className="md:col-span-3">
+             <select 
+                className="w-full border border-gray-200 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={filterCategory}
+                onChange={(e) => setFilterCategory(e.target.value)}
+            >
+                <option value="ALL">-- Tất cả Danh mục --</option>
+                {config?.categories.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                ))}
+            </select>
+        </div>
+
+        <div className="md:col-span-3">
+            <select 
+                className="w-full border border-gray-200 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+            >
+                <option value="ALL">-- Tất cả Trạng thái --</option>
+                <option value={DeviceStatus.AVAILABLE}>Sẵn sàng</option>
+                <option value={DeviceStatus.IN_USE}>Đang mượn</option>
+                <option value={DeviceStatus.BROKEN}>Hỏng / Mất</option>
+                <option value={DeviceStatus.MAINTENANCE}>Bảo trì</option>
+            </select>
+        </div>
+        
+        <div className="md:col-span-1 flex items-center justify-center text-gray-400">
+            <Filter className="w-5 h-5" />
         </div>
       </div>
 
