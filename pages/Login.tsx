@@ -26,10 +26,10 @@ export const Login: React.FC = () => {
       if (success) {
         navigate(from, { replace: true });
       } else {
-        setError('Invalid username or password. Try "admin" / "admin"');
+        setError('Sai tên đăng nhập hoặc mật khẩu. Mặc định là: admin / admin');
       }
     } catch (e) {
-      setError('An error occurred during login');
+      setError('Đã xảy ra lỗi đăng nhập');
     } finally {
       setLoading(false);
     }
@@ -37,7 +37,7 @@ export const Login: React.FC = () => {
 
   const handleForgotPass = (e: React.FormEvent) => {
     e.preventDefault();
-    alert('A password recovery email has been sent to your registered address (Simulated).');
+    alert('Email khôi phục mật khẩu đã được gửi (Mô phỏng).');
     setShowForgot(false);
   };
 
@@ -51,7 +51,7 @@ export const Login: React.FC = () => {
             </div>
           </div>
           <h2 className="text-2xl font-bold text-white">EduEquip Manager</h2>
-          <p className="text-slate-400 mt-2 text-sm">School Facility Management System</p>
+          <p className="text-slate-400 mt-2 text-sm">Hệ thống quản lý cơ sở vật chất trường học</p>
         </div>
 
         <div className="p-8">
@@ -64,7 +64,7 @@ export const Login: React.FC = () => {
               )}
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Username / Email</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tài khoản / Email</label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
@@ -73,13 +73,13 @@ export const Login: React.FC = () => {
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                    placeholder="Enter your username"
+                    placeholder="Nhập tên đăng nhập"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Mật khẩu</label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
@@ -88,7 +88,7 @@ export const Login: React.FC = () => {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                    placeholder="Enter your password"
+                    placeholder="Nhập mật khẩu"
                   />
                 </div>
               </div>
@@ -101,14 +101,14 @@ export const Login: React.FC = () => {
                     onChange={(e) => setRemember(e.target.checked)}
                     className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
                   />
-                  <span>Remember me (3 days)</span>
+                  <span>Ghi nhớ đăng nhập</span>
                 </label>
                 <button 
                   type="button" 
                   onClick={() => setShowForgot(true)}
                   className="text-sm text-blue-600 hover:text-blue-800"
                 >
-                  Forgot Password?
+                  Quên mật khẩu?
                 </button>
               </div>
 
@@ -117,17 +117,17 @@ export const Login: React.FC = () => {
                 disabled={loading}
                 className="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-4 focus:ring-blue-200 transition-all font-medium flex justify-center items-center"
               >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Sign In'}
+                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Đăng nhập'}
               </button>
 
               <div className="text-center text-xs text-gray-400 mt-4">
-                Note: Default admin login is <strong>admin / admin</strong>
+                Lưu ý: Tài khoản mặc định <strong>admin / admin</strong>
               </div>
             </form>
           ) : (
             <div className="space-y-6">
-               <h3 className="text-lg font-semibold text-gray-900">Reset Password</h3>
-               <p className="text-sm text-gray-500">Enter your email to receive recovery instructions.</p>
+               <h3 className="text-lg font-semibold text-gray-900">Khôi phục mật khẩu</h3>
+               <p className="text-sm text-gray-500">Nhập email của bạn để nhận hướng dẫn khôi phục.</p>
                <form onSubmit={handleForgotPass}>
                  <input
                     type="email"
@@ -141,13 +141,13 @@ export const Login: React.FC = () => {
                       onClick={() => setShowForgot(false)}
                       className="flex-1 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
                     >
-                      Cancel
+                      Hủy
                     </button>
                     <button 
                       type="submit"
                       className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                     >
-                      Send
+                      Gửi
                     </button>
                   </div>
                </form>

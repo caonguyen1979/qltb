@@ -40,10 +40,10 @@ export const Dashboard: React.FC = () => {
   }, [devices]);
 
   const pieData = [
-    { name: 'Available', value: stats.available, color: '#10b981' },
-    { name: 'In Use', value: stats.inUse, color: '#3b82f6' },
-    { name: 'Broken', value: stats.broken, color: '#ef4444' },
-    { name: 'Maintenance', value: stats.maintenance, color: '#f59e0b' },
+    { name: 'Sẵn sàng', value: stats.available, color: '#10b981' },
+    { name: 'Đang mượn', value: stats.inUse, color: '#3b82f6' },
+    { name: 'Hỏng/Mất', value: stats.broken, color: '#ef4444' },
+    { name: 'Bảo trì', value: stats.maintenance, color: '#f59e0b' },
   ];
 
   const categoryData = useMemo(() => {
@@ -63,7 +63,7 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Dashboard Overview</h1>
+      <h1 className="text-2xl font-bold text-gray-900">Tổng quan hệ thống</h1>
 
       {/* Stat Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -72,7 +72,7 @@ export const Dashboard: React.FC = () => {
             <CheckCircle className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-sm text-gray-500">Available</p>
+            <p className="text-sm text-gray-500">Sẵn sàng sử dụng</p>
             <p className="text-2xl font-bold text-gray-900">{stats.available}</p>
           </div>
         </div>
@@ -82,7 +82,7 @@ export const Dashboard: React.FC = () => {
             <Clock className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-sm text-gray-500">In Use</p>
+            <p className="text-sm text-gray-500">Đang được mượn</p>
             <p className="text-2xl font-bold text-gray-900">{stats.inUse}</p>
           </div>
         </div>
@@ -92,7 +92,7 @@ export const Dashboard: React.FC = () => {
             <AlertCircle className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-sm text-gray-500">Broken / Lost</p>
+            <p className="text-sm text-gray-500">Hỏng / Mất</p>
             <p className="text-2xl font-bold text-gray-900">{stats.broken}</p>
           </div>
         </div>
@@ -102,7 +102,7 @@ export const Dashboard: React.FC = () => {
             <Wrench className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-sm text-gray-500">Maintenance</p>
+            <p className="text-sm text-gray-500">Đang bảo trì</p>
             <p className="text-2xl font-bold text-gray-900">{stats.maintenance}</p>
           </div>
         </div>
@@ -111,7 +111,7 @@ export const Dashboard: React.FC = () => {
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h3 className="text-lg font-semibold mb-4 text-gray-800">Status Distribution</h3>
+          <h3 className="text-lg font-semibold mb-4 text-gray-800">Trạng thái thiết bị</h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -136,7 +136,7 @@ export const Dashboard: React.FC = () => {
         </div>
 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h3 className="text-lg font-semibold mb-4 text-gray-800">Equipment by Category</h3>
+          <h3 className="text-lg font-semibold mb-4 text-gray-800">Phân loại thiết bị</h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={categoryData}>

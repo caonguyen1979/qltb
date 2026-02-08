@@ -6,11 +6,12 @@ import { Device, DeviceStatus, Role, User } from '../types';
 
 const LOCAL_STORAGE_KEYS = {
   USERS: 'eduequip_users',
-  DEVICES: 'eduequip_devices'
+  DEVICES: 'eduequip_devices',
+  CONFIG: 'eduequip_config'
 };
 
 const seedUsers: User[] = [
-  { id: '1', username: 'admin', fullName: 'System Administrator', email: 'admin@school.edu', role: Role.ADMIN },
+  { id: '1', username: 'admin', fullName: 'Quản trị hệ thống', email: 'admin@school.edu', role: Role.ADMIN },
 ];
 
 export const db = {
@@ -18,12 +19,9 @@ export const db = {
   getUsers: async (): Promise<User[]> => {
     try {
         const res = await fetch('/api/sheet?type=users');
-        if (!res.ok) {
-            const errorData = await res.json();
-            console.error("API Error (Users):", errorData);
-            throw new Error(errorData.message || 'API Unavailable');
-        }
+        if (!res.ok) throw new Error('API Error');
         const data = await res.json();
+        // Fallback if empty sheet
         if (Array.isArray(data) && data.length === 0) return seedUsers;
         return data;
     } catch (e) {
@@ -38,18 +36,37 @@ export const db = {
     return users.find(u => u.username === username || u.email === username);
   },
 
-  addUser: async (user: User): Promise<void> => {
+  saveUser: async (user: User): Promise<void> => {
     try {
-      const res = await fetch('/api/sheet?type=users', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(user)
-      });
-      if (!res.ok) throw new Error('API Error');
+        const resList = await fetch('/api/sheet?type=users');
+        if (!resList.ok) throw new Error("API Unavailable");
+        
+        const users: User[] = await resList.json();
+        const exists = users.some(u => u.id === user.id);
+
+        const method = exists ? 'PUT' : 'POST';
+        const res = await fetch('/api/sheet?type=users', {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(user)
+        });
+        if (!res.ok) throw new Error('Save failed');
     } catch (e) {
-      const users = await db.getUsers();
-      users.push(user);
-      localStorage.setItem(LOCAL_STORAGE_KEYS.USERS, JSON.stringify(users));
+        const users = await db.getUsers();
+        const index = users.findIndex(u => u.id === user.id);
+        if (index >= 0) users[index] = user;
+        else users.push(user);
+        localStorage.setItem(LOCAL_STORAGE_KEYS.USERS, JSON.stringify(users));
+    }
+  },
+
+  deleteUser: async (id: string): Promise<void> => {
+    try {
+        await fetch(`/api/sheet?type=users&id=${id}`, { method: 'DELETE' });
+    } catch (e) {
+        const users = await db.getUsers();
+        const filtered = users.filter(u => u.id !== id);
+        localStorage.setItem(LOCAL_STORAGE_KEYS.USERS, JSON.stringify(filtered));
     }
   },
 
@@ -58,7 +75,6 @@ export const db = {
     try {
         const res = await fetch('/api/sheet?type=data');
         if (!res.ok) {
-            // Log the detailed error from the server to the browser console
             const errText = await res.text();
             console.error("API FAILED DETAILS:", errText);
             throw new Error('API Unavailable');
@@ -92,21 +108,14 @@ export const db = {
         });
         if (!res.ok) {
              const err = await res.json();
-             alert(`Save failed: ${err.message}`);
              throw new Error(err.message);
         }
     } catch (e) {
-        // Local Fallback
         const devices = await db.getDevices();
         const index = devices.findIndex(d => d.id === device.id);
-        
-        if (index >= 0) {
-            devices[index] = device;
-        } else {
-            devices.push(device);
-        }
+        if (index >= 0) devices[index] = device;
+        else devices.push(device);
         localStorage.setItem(LOCAL_STORAGE_KEYS.DEVICES, JSON.stringify(devices));
-        console.log("Saved to LocalStorage");
     }
   },
 
@@ -122,6 +131,11 @@ export const db = {
   },
 
   getConfig: () => {
-    return { schoolName: 'Future High School', academicYear: '2023-2024' };
+    const local = localStorage.getItem(LOCAL_STORAGE_KEYS.CONFIG);
+    return local ? JSON.parse(local) : { schoolName: 'Trường THPT Tương Lai', academicYear: '2023-2024' };
+  },
+
+  saveConfig: (config: any) => {
+    localStorage.setItem(LOCAL_STORAGE_KEYS.CONFIG, JSON.stringify(config));
   }
 };

@@ -42,6 +42,16 @@ export const DeviceList: React.FC = () => {
     }
   };
 
+  const getStatusText = (status: DeviceStatus) => {
+    switch (status) {
+      case DeviceStatus.AVAILABLE: return 'Sẵn sàng';
+      case DeviceStatus.IN_USE: return 'Đang mượn';
+      case DeviceStatus.BROKEN: return 'Hỏng / Mất';
+      case DeviceStatus.MAINTENANCE: return 'Bảo trì';
+      default: return status;
+    }
+  };
+
   if (loading) {
       return <div className="flex justify-center p-10"><Loader2 className="animate-spin text-blue-600" /></div>;
   }
@@ -49,14 +59,14 @@ export const DeviceList: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h1 className="text-2xl font-bold text-gray-900">Equipment List</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Danh sách thiết bị</h1>
         {user?.role === Role.ADMIN && (
           <button 
             onClick={() => navigate('/devices/new')}
             className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow-sm"
           >
             <Plus className="w-4 h-4" />
-            <span>Add Device</span>
+            <span>Thêm thiết bị</span>
           </button>
         )}
       </div>
@@ -67,7 +77,7 @@ export const DeviceList: React.FC = () => {
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
           <input
             type="text"
-            placeholder="Search by name, code, or location..."
+            placeholder="Tìm theo tên, mã số, hoặc vị trí..."
             className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -80,10 +90,11 @@ export const DeviceList: React.FC = () => {
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
           >
-            <option value="ALL">All Status</option>
-            {Object.values(DeviceStatus).map(s => (
-              <option key={s} value={s}>{s}</option>
-            ))}
+            <option value="ALL">Tất cả trạng thái</option>
+            <option value={DeviceStatus.AVAILABLE}>Sẵn sàng</option>
+            <option value={DeviceStatus.IN_USE}>Đang mượn</option>
+            <option value={DeviceStatus.BROKEN}>Hỏng / Mất</option>
+            <option value={DeviceStatus.MAINTENANCE}>Bảo trì</option>
           </select>
         </div>
       </div>
@@ -94,12 +105,12 @@ export const DeviceList: React.FC = () => {
           <table className="w-full text-left border-collapse">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Code</th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Category</th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Location</th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Mã TS</th>
+                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Tên thiết bị</th>
+                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Danh mục</th>
+                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Vị trí</th>
+                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Trạng thái</th>
+                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Hành động</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -120,20 +131,20 @@ export const DeviceList: React.FC = () => {
                   <td className="px-6 py-4 text-sm text-gray-500">{device.location}</td>
                   <td className="px-6 py-4 text-sm">
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(device.status)}`}>
-                      {device.status}
+                      {getStatusText(device.status)}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm text-right">
                     <div className="flex items-center justify-end space-x-3">
-                      <Link to={`/devices/${device.id}`} className="text-gray-400 hover:text-blue-600" title="View Details">
+                      <Link to={`/devices/${device.id}`} className="text-gray-400 hover:text-blue-600" title="Chi tiết">
                         <Eye className="w-4 h-4" />
                       </Link>
                       {user?.role === Role.ADMIN && (
-                        <Link to={`/devices/${device.id}?edit=true`} className="text-gray-400 hover:text-green-600" title="Edit">
+                        <Link to={`/devices/${device.id}?edit=true`} className="text-gray-400 hover:text-green-600" title="Sửa">
                           <Edit className="w-4 h-4" />
                         </Link>
                       )}
-                      <Link to={`/devices/${device.id}?qr=true`} className="text-gray-400 hover:text-purple-600" title="QR Code">
+                      <Link to={`/devices/${device.id}?qr=true`} className="text-gray-400 hover:text-purple-600" title="Mã QR">
                         <QrCode className="w-4 h-4" />
                       </Link>
                     </div>
@@ -143,7 +154,7 @@ export const DeviceList: React.FC = () => {
               {filteredDevices.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
-                    No devices found matching your criteria.
+                    Không tìm thấy thiết bị nào.
                   </td>
                 </tr>
               )}

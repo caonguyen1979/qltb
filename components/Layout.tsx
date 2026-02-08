@@ -25,10 +25,10 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const toggleSidebar = () => setSidebarOpen(!isSidebarOpen);
 
   const navItems = [
-    { label: 'Dashboard', icon: LayoutDashboard, path: '/', roles: [Role.ADMIN, Role.MANAGER] },
-    { label: 'Equipment', icon: Box, path: '/devices', roles: [Role.ADMIN, Role.MANAGER, Role.USER] },
-    { label: 'Users', icon: Users, path: '/users', roles: [Role.ADMIN] },
-    { label: 'Settings', icon: Settings, path: '/settings', roles: [Role.ADMIN] },
+    { label: 'Tổng quan', icon: LayoutDashboard, path: '/', roles: [Role.ADMIN, Role.MANAGER] },
+    { label: 'Thiết bị', icon: Box, path: '/devices', roles: [Role.ADMIN, Role.MANAGER, Role.USER] },
+    { label: 'Người dùng', icon: Users, path: '/users', roles: [Role.ADMIN] },
+    { label: 'Cài đặt', icon: Settings, path: '/settings', roles: [Role.ADMIN] },
   ];
 
   return (
@@ -85,12 +85,12 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
 
         <div className="absolute bottom-0 left-0 right-0 p-4 bg-slate-900 border-t border-slate-800">
           <div className="flex items-center space-x-3 mb-4 px-2">
-            <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-sm font-bold">
+            <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-sm font-bold text-white">
               {user?.fullName.charAt(0)}
             </div>
             <div className="flex-1 overflow-hidden">
               <p className="text-sm font-medium truncate">{user?.fullName}</p>
-              <p className="text-xs text-slate-500 truncate capitalize">{user?.role.toLowerCase()}</p>
+              <p className="text-xs text-slate-500 truncate capitalize">{user?.role === Role.ADMIN ? 'Quản trị viên' : user?.role === Role.MANAGER ? 'Quản lý' : 'Giáo viên'}</p>
             </div>
           </div>
           <button 
@@ -98,7 +98,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             className="flex items-center space-x-2 text-slate-400 hover:text-red-400 w-full px-2 py-2 text-sm transition-colors"
           >
             <LogOut className="w-4 h-4" />
-            <span>Sign Out</span>
+            <span>Đăng xuất</span>
           </button>
         </div>
       </aside>

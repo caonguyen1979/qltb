@@ -6,6 +6,8 @@ import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { DeviceList } from './pages/DeviceList';
 import { DeviceDetail } from './pages/DeviceDetail';
+import { UsersPage } from './pages/Users';
+import { SettingsPage } from './pages/Settings';
 
 // Protected Route Wrapper
 const ProtectedRoute = () => {
@@ -31,6 +33,8 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/devices" element={<DeviceList />} />
             <Route path="/devices/:id" element={<DeviceDetail />} />
+            <Route path="/users" element={<UsersPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
